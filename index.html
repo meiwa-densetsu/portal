@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>つながり試験</title>
+<style>
+  :root { --ok: #1b7f3a; --ng: #b3261e; --ink: #1a1a1a; --sub: #666; --line: #ddd; }
+  body { margin: 0; padding: 16px; font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+         color: var(--ink); background: #fff; line-height: 1.6; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .sub { color: var(--sub); font-size: .85rem; margin: 0 0 16px; }
+  #summary { font-size: 1.6rem; font-weight: 700; padding: 16px; border-radius: 8px; border: 2px solid var(--line); text-align: center; }
+  #summary.ok { color: var(--ok); border-color: var(--ok); }
+  #summary.ng { color: var(--ng); border-color: var(--ng); }
+  ul { padding-left: 1.2rem; }
+  li { margin: 6px 0; word-break: break-all; }
+  .ok { color: var(--ok); } .ng { color: var(--ng); }
+  button { font-size: 1rem; padding: 12px 20px; min-height: 44px; margin-top: 12px; border-radius: 8px; border: 1px solid #999; background: #f5f5f5; }
+</style>
+</head>
+<body>
+<h1>名和電設ポータル つながり試験</h1>
+<p class="sub">試験用のページです。開くと自動で試験をします。</p>
+<div id="summary">試験中…</div>
+<ul id="list"></ul>
+<p class="sub" id="device"></p>
+<button id="again" type="button">もう一度試す</button>
+
+<script>
+  // 試験用 GAS の公開アドレス（秘密ではない）
+  const EXEC_URL = 'https://script.google.com/macros/s/AKfycbzOrAZQ7FmSMGd1I1iSJDDaan27Hk1ieUbHIylsjVBQ2WQDtOS3LCJPWFBrIF9-gHUd/exec';
+
+  const list = document.getElementById('list');
+  function line(ok, text) {
+    const li = document.createElement('li');
+    li.className = ok ? 'ok' : 'ng';
+    li.textContent = (ok ? '✓ ' : '✗ ') + text;
+    list.appendChild(li);
+    return ok;
+  }
+
+  async function call(action) {
+    const t0 = performance.now();
+    const res = await fetch(EXEC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, apiVersion: 'spike-1', requestId: 'r-' + Date.now(), args: { text: 'こんにちは' } }),
+    });
+    const body = await res.json();
+    return { body, ms: Math.round(performance.now() - t0) };
+  }
+
+  async function run() {
+    list.textContent = '';
+    const summary = document.getElementById('summary');
+    summary.className = ''; summary.textContent = '試験中…';
+    const results = [];
+
+    // 1. 正常（1回目と2回目の速さも見る）
+    for (const n of [1, 2]) {
+      try {
+        const r = await call('ping');
+        results.push(line(r.body.ok === true && r.body.data.echo === 'こんにちは', `正常な呼び出し ${n}回目: ${r.body.data && r.body.data.message}（${r.ms}ms）`));
+      } catch (e) { results.push(line(false, `正常な呼び出し ${n}回目: 失敗 ${e.message}`)); }
+    }
+    // 2. アプリとしてのエラーが読めるか
+    try {
+      const r = await call('appError');
+      results.push(line(r.body.ok === false && r.body.error.code === 'FORBIDDEN', `エラーの受け取り: ${r.body.error && r.body.error.message}（${r.ms}ms）`));
+    } catch (e) { results.push(line(false, 'エラーの受け取り: 失敗 ' + e.message)); }
+    // 3. GAS の中で想定外の例外が起きたとき（読めないのが正しい。画面が止まらずに「失敗」と扱えるか）
+    try {
+      await call('throw');
+      results.push(line(false, '想定外の例外: 読めてしまった（想定と違う）'));
+    } catch (e) { results.push(line(true, '想定外の例外: 「通信に失敗」として受け止められた（想定どおり）')); }
+    // 4. この端末に記録が残るか（次に開いたときに前回の時刻が出れば、ログインを覚えておける）
+    let prev = null;
+    try { prev = localStorage.getItem('spike_last_open'); localStorage.setItem('spike_last_open', new Date().toLocaleString('ja-JP')); } catch (e) {}
+    line(true, prev ? `この端末の記録: 前回開いた時刻 ${prev}（残っています）` : 'この端末の記録: 初めて開きました（もう一度開くと、前回の時刻が出るはずです）');
+
+    const allOk = results.every(Boolean);
+    summary.className = allOk ? 'ok' : 'ng';
+    summary.textContent = allOk ? 'つながりました ✓' : 'つながりませんでした ✗';
+    document.getElementById('device').textContent = '端末: ' + navigator.userAgent;
+    document.body.dataset.done = allOk ? 'ok' : 'ng';
+  }
+
+  document.getElementById('again').addEventListener('click', run);
+  run();
+</script>
+</body>
+</html>
