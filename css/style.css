@@ -1,0 +1,200 @@
+/*
+ * 名和電設ポータル 共通のスタイル
+ * 見た目は仮（後からまとめて確認する）。色・文字の大きさ・角の丸み・余白は、この :root の変数だけで変えられる。
+ * 各画面・各部品に色や大きさを直接書かない
+ */
+:root {
+  --c-bg: #f4f5f7;
+  --c-surface: #ffffff;
+  --c-text: #1c2430;
+  --c-sub: #5b6675;
+  --c-line: #d5dae1;
+  --c-primary: #1f4e79;
+  --c-primary-text: #ffffff;
+  --c-primary-weak: #e6eef6;
+  --c-danger: #b3261e;
+  --c-danger-weak: #fbeceb;
+  --c-warn: #7a5200;
+  --c-warn-weak: #fff4d6;
+  --c-ok: #1b6b3a;
+  --c-ok-weak: #e7f4ec;
+  --c-overlay: rgba(20, 28, 40, 0.45);
+
+  --fs-base: 16px;
+  --fs-small: 14px;
+  --fs-large: 20px;
+  --fs-code: 32px;
+  --lh: 1.7;
+
+  --radius: 8px;
+  --tap: 44px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --w-narrow: 480px;
+  --w-wide: 1100px;
+
+  --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  line-height: var(--lh);
+  overflow-wrap: anywhere;
+}
+
+[hidden] { display: none !important; }
+
+h1 { font-size: var(--fs-large); line-height: 1.4; margin: 0 0 var(--sp-4); }
+h2 { font-size: var(--fs-base); line-height: 1.4; margin: var(--sp-5) 0 var(--sp-3); }
+p { margin: 0 0 var(--sp-3); }
+ul, ol { margin: 0 0 var(--sp-3); padding-left: 1.4em; }
+
+.wrap { width: 100%; max-width: var(--w-narrow); margin: 0 auto; padding: var(--sp-4); }
+.wrap.wide { max-width: var(--w-wide); }
+
+.card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.card > :last-child { margin-bottom: 0; }
+.card h2:first-child { margin-top: 0; }
+
+.sub { color: var(--c-sub); font-size: var(--fs-small); }
+.center { text-align: center; }
+
+/* ---- 上の帯 ---- */
+.topbar { background: var(--c-primary); color: var(--c-primary-text); }
+.topbar-inner {
+  max-width: var(--w-wide); margin: 0 auto; padding: var(--sp-1) var(--sp-4);
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+}
+.topbar-home {
+  color: inherit; font-weight: 700; text-decoration: none;
+  display: inline-flex; align-items: center; min-height: var(--tap);
+}
+.topbar-who { margin-left: auto; font-size: var(--fs-small); }
+.topbar .btn { background: transparent; color: inherit; border-color: currentColor; }
+
+/* ---- 入力 ---- */
+.field { margin-bottom: var(--sp-4); }
+.field > label, .field > .label { display: block; font-weight: 700; margin-bottom: var(--sp-1); }
+.field .hint { color: var(--c-sub); font-size: var(--fs-small); margin: var(--sp-1) 0 0; }
+
+input[type="text"], input[type="password"], input[type="number"], select {
+  width: 100%; min-height: var(--tap);
+  font: inherit; color: inherit; background: var(--c-surface);
+  border: 1px solid var(--c-sub); border-radius: var(--radius);
+  padding: var(--sp-2) var(--sp-3);
+}
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--c-primary); outline-offset: 2px;
+}
+input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--c-danger); border-width: 2px; }
+.field-error { color: var(--c-danger); font-size: var(--fs-small); margin: var(--sp-1) 0 0; font-weight: 700; }
+
+.check { display: flex; align-items: center; gap: var(--sp-2); min-height: var(--tap); }
+.check input { width: 22px; height: 22px; flex: none; margin: 0; }
+
+.row { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.row > * { flex: 1 1 0; min-width: 0; }
+.row.fit > * { flex: 0 1 auto; }
+
+/* ---- 押すもの ---- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--tap); padding: var(--sp-2) var(--sp-4);
+  font: inherit; font-weight: 700; text-decoration: none; text-align: center;
+  color: var(--c-primary); background: var(--c-surface);
+  border: 1px solid var(--c-primary); border-radius: var(--radius);
+  cursor: pointer;
+}
+.btn.primary { color: var(--c-primary-text); background: var(--c-primary); }
+.btn.danger { color: var(--c-danger); border-color: var(--c-danger); }
+.btn.block { display: flex; width: 100%; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn + .btn.block, .stack > * + * { margin-top: var(--sp-2); }
+
+/* ---- お知らせ ---- */
+.msg { border-radius: var(--radius); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4); border: 1px solid transparent; white-space: pre-line; }
+.msg.error { background: var(--c-danger-weak); border-color: var(--c-danger); color: var(--c-danger); font-weight: 700; }
+.msg.info { background: var(--c-primary-weak); border-color: var(--c-primary); }
+.msg.warn { background: var(--c-warn-weak); border-color: var(--c-warn); color: var(--c-warn); }
+.msg.ok { background: var(--c-ok-weak); border-color: var(--c-ok); color: var(--c-ok); }
+
+.busy {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  background: var(--c-text); color: var(--c-surface); text-align: center; padding: var(--sp-2);
+}
+
+/* ---- 確認・お知らせのダイアログ ---- */
+dialog {
+  width: calc(100% - var(--sp-6)); max-width: var(--w-narrow); max-height: calc(100% - var(--sp-6));
+  border: 1px solid var(--c-line); border-radius: var(--radius); padding: var(--sp-4);
+  color: var(--c-text); background: var(--c-surface); overflow: auto;
+}
+dialog::backdrop { background: var(--c-overlay); }
+dialog h2 { margin-top: 0; font-size: var(--fs-large); }
+dialog .dialog-body { white-space: pre-line; }
+dialog .dialog-buttons { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
+
+/* ---- 一覧 ---- */
+.list { list-style: none; margin: 0; padding: 0; }
+.list > li { border-top: 1px solid var(--c-line); padding: var(--sp-3) 0; }
+.list > li:first-child { border-top: 0; padding-top: 0; }
+.list > li:last-child { padding-bottom: 0; }
+.item-title { font-weight: 700; }
+.item-actions { margin-top: var(--sp-2); display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+.tag { display: inline-block; font-size: var(--fs-small); font-weight: 700; border-radius: var(--radius); padding: 0 var(--sp-2); border: 1px solid var(--c-line); background: var(--c-bg); }
+.tag.ok { color: var(--c-ok); border-color: var(--c-ok); background: var(--c-ok-weak); }
+.tag.warn { color: var(--c-warn); border-color: var(--c-warn); background: var(--c-warn-weak); }
+.tag.off { color: var(--c-danger); border-color: var(--c-danger); background: var(--c-danger-weak); }
+
+.code-big {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: var(--fs-code); font-weight: 700; letter-spacing: 0.08em; text-align: center;
+  background: var(--c-primary-weak); border-radius: var(--radius); padding: var(--sp-3); margin-bottom: var(--sp-3);
+}
+.secret-box {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: var(--fs-small);
+  background: var(--c-bg); border: 1px solid var(--c-line); border-radius: var(--radius);
+  padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-2); word-break: break-all; user-select: all;
+}
+
+.menu { display: grid; gap: var(--sp-2); }
+
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--sp-1) var(--sp-3); margin: 0; }
+dl.kv dt { color: var(--c-sub); font-size: var(--fs-small); }
+dl.kv dd { margin: 0; }
+
+/* 表（パソコンの幅でだけ使う。スマホではカードの一覧を出す） */
+.table-wrap { display: none; }
+table.grid { width: 100%; border-collapse: collapse; background: var(--c-surface); }
+table.grid th, table.grid td { border-bottom: 1px solid var(--c-line); padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: middle; }
+table.grid th { font-size: var(--fs-small); color: var(--c-sub); white-space: nowrap; }
+
+.framed-note { padding: var(--sp-5); text-align: center; }
+
+@media (min-width: 800px) {
+  .menu.cols { grid-template-columns: repeat(3, 1fr); }
+  .table-wrap { display: block; }
+  .cards-only { display: none; }
+  dialog .dialog-buttons { flex-direction: row-reverse; }
+  dialog .dialog-buttons > * { flex: 1 1 0; }
+}

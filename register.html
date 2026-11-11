@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>端末の登録｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/style.css?v=1">
+<script src="js/boot.js?v=1" defer></script>
+<script src="js/config.js?v=1" defer></script>
+<script src="js/store.js?v=1" defer></script>
+<script src="js/ui.js?v=1" defer></script>
+<script src="js/api.js?v=1" defer></script>
+<script src="js/page_register.js?v=1" defer></script>
+</head>
+<body hidden>
+<main class="wrap">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<h1>この端末を登録する</h1>
+<div id="register-done" class="card" hidden>
+  <p>この端末は登録済みです。</p>
+  <a class="btn primary block" href="login.html">ログインへ</a>
+</div>
+<form id="register-form" class="card" novalidate>
+  <p>この端末は、まだ登録されていません。登録済みの端末（スマホなど）で出した「追加コード」を入れてください。</p>
+  <div class="field">
+    <label for="code">追加コード（8桁）</label>
+    <input type="text" id="code" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <p class="hint">登録済みの端末で、ホーム ＞「端末を追加する」を開くと出せます</p>
+  </div>
+  <button type="submit" class="btn primary block">コードを確かめる</button>
+</form>
+<div class="card">
+  <h2>招待リンクを受け取った人</h2>
+  <p>LINE に届いた招待リンクを開いてください。</p>
+  <h2>どちらも無い人</h2>
+  <p>管理者に連絡して、招待リンクを送ってもらってください。</p>
+</div>
+</main>
+</body>
+</html>

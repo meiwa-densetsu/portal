@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>ログイン｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/style.css?v=1">
+<script src="js/boot.js?v=1" defer></script>
+<script src="js/config.js?v=1" defer></script>
+<script src="js/store.js?v=1" defer></script>
+<script src="js/ui.js?v=1" defer></script>
+<script src="js/api.js?v=1" defer></script>
+<script src="js/page_login.js?v=1" defer></script>
+</head>
+<body hidden>
+<main class="wrap">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<h1>ログイン</h1>
+<form id="login-form" class="card" novalidate hidden>
+  <input type="text" id="username" autocomplete="username" hidden>
+  <div class="field">
+    <label for="login-id">名前</label>
+    <select id="login-id"></select>
+  </div>
+  <div class="field">
+    <label for="password">パスワード</label>
+    <input type="password" id="password" maxlength="300" autocomplete="current-password">
+  </div>
+  <label class="check" for="shared"><input type="checkbox" id="shared"> このパソコンは他の人も使う</label>
+  <p id="shared-note" class="msg warn" hidden>30分使わないと自動でログアウトします。使い終わったら「ログアウト」を押してください。</p>
+  <button type="submit" class="btn primary block">ログイン</button>
+</form>
+<div class="card">
+  <p id="device-label" class="sub"></p>
+  <button type="button" id="redo" class="btn block">端末の登録をやり直す</button>
+</div>
+</main>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>社員の管理｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/style.css?v=1">
+<script src="js/boot.js?v=1" defer></script>
+<script src="js/config.js?v=1" defer></script>
+<script src="js/store.js?v=1" defer></script>
+<script src="js/ui.js?v=1" defer></script>
+<script src="js/api.js?v=1" defer></script>
+<script src="js/guard.js?v=1" defer></script>
+<script src="js/page_admin_employees.js?v=1" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<div id="emp" hidden>
+  <div id="list-view">
+    <h1>社員の管理</h1>
+    <div class="card">
+      <div class="item-actions"><button type="button" id="add" class="btn primary">社員を追加</button></div>
+      <ul id="emp-cards" class="list cards-only"></ul>
+      <div class="table-wrap">
+        <table class="grid">
+          <thead><tr><th>名前</th><th>部署</th><th>権限</th><th>状態</th><th></th></tr></thead>
+          <tbody id="emp-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <a class="btn block" href="home.html">ホームへ戻る</a>
+  </div>
+
+  <div id="detail-view" hidden>
+    <h1 id="detail-name"></h1>
+    <p id="detail-note" class="msg info" hidden></p>
+    <div class="item-actions"><button type="button" id="back" class="btn">一覧へ戻る</button></div>
+    <form id="basic-form" class="card" novalidate>
+      <h2>基本</h2>
+      <div id="basic-fields"></div>
+      <button type="submit" class="btn primary block">基本を保存する</button>
+    </form>
+    <div class="card">
+      <h2>今の内容（権限・部署など）</h2>
+      <div id="current"></div>
+    </div>
+    <div class="card">
+      <h2>履歴（いつから・どの内容か）</h2>
+      <ul id="hist-list" class="list"></ul>
+      <div class="item-actions"><button type="button" id="hist-add" class="btn primary">変更を足す</button></div>
+    </div>
+    <div class="card">
+      <h2>ログインと利用</h2>
+      <div id="actions" class="stack"></div>
+    </div>
+  </div>
+
+  <form id="hist-view" novalidate hidden>
+    <h1 id="hist-title"></h1>
+    <div class="card">
+      <p id="hist-lead" class="sub"></p>
+      <div id="hist-fields"></div>
+      <button type="submit" class="btn primary block">保存する</button>
+      <button type="button" id="hist-cancel" class="btn block">やめる</button>
+    </div>
+  </form>
+
+  <form id="add-view" novalidate hidden>
+    <h1>社員を追加</h1>
+    <div class="card">
+      <h2>基本</h2>
+      <div id="add-basic"></div>
+    </div>
+    <div class="card">
+      <h2>権限・部署など</h2>
+      <div id="add-hist"></div>
+      <button type="submit" class="btn primary block">追加する</button>
+      <button type="button" id="add-cancel" class="btn block">やめる</button>
+    </div>
+  </form>
+</div>
+</main>
+</body>
+</html>

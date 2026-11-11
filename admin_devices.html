@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>端末とロックの管理｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/style.css?v=1">
+<script src="js/boot.js?v=1" defer></script>
+<script src="js/config.js?v=1" defer></script>
+<script src="js/store.js?v=1" defer></script>
+<script src="js/ui.js?v=1" defer></script>
+<script src="js/api.js?v=1" defer></script>
+<script src="js/guard.js?v=1" defer></script>
+<script src="js/page_admin_devices.js?v=1" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<div id="admin" hidden>
+  <h1>端末とロックの管理</h1>
+  <div class="card">
+    <p id="count" class="item-title"></p>
+    <p id="near-limit" class="msg warn" hidden>登録できる端末の数の上限に近づいています。使っていない端末を取消してください。</p>
+    <div class="item-actions"><button type="button" id="refresh" class="btn">更新</button></div>
+  </div>
+  <div class="card">
+    <h2>今ロック中のもの</h2>
+    <ul id="lock-list" class="list"></ul>
+  </div>
+  <div class="card">
+    <h2>端末の一覧</h2>
+    <ul id="device-list" class="list"></ul>
+  </div>
+  <div class="card">
+    <h2>最近7日の記録（端末の追加が多い・ロック）</h2>
+    <ul id="alert-list" class="list"></ul>
+  </div>
+  <div class="card">
+    <h2>通信にかかった時間（この端末の最近20回）</h2>
+    <ul id="timing-list" class="list"></ul>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

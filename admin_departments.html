@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>部署の管理｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/style.css?v=1">
+<script src="js/boot.js?v=1" defer></script>
+<script src="js/config.js?v=1" defer></script>
+<script src="js/store.js?v=1" defer></script>
+<script src="js/ui.js?v=1" defer></script>
+<script src="js/api.js?v=1" defer></script>
+<script src="js/guard.js?v=1" defer></script>
+<script src="js/page_admin_departments.js?v=1" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<div id="list-view" hidden>
+  <h1>部署の管理</h1>
+  <div class="card">
+    <ul id="dept-list" class="list"></ul>
+    <div class="item-actions"><button type="button" id="add" class="btn primary">部署を追加</button></div>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+<div id="edit-view" hidden>
+  <h1 id="edit-title">部署を追加</h1>
+  <form id="edit-form" class="card" novalidate>
+    <div class="field">
+      <label for="dept-name">部署の名前</label>
+      <input type="text" id="dept-name" maxlength="60" autocomplete="off">
+      <p class="hint">例「工事部」「事務」（30文字まで）</p>
+    </div>
+    <div class="field">
+      <label for="dept-order">表示順</label>
+      <input type="text" id="dept-order" inputmode="numeric" maxlength="4" autocomplete="off">
+      <p class="hint">一覧に並ぶ順番です（1〜9999。小さいほうが上）</p>
+    </div>
+    <div id="active-field" class="field" hidden>
+      <label class="check" for="dept-active"><input type="checkbox" id="dept-active"> 有効（使っている）</label>
+      <p class="hint">使わなくなった部署は、チェックを外します。今その部署にいる人・これから入る予定の人がいる間は、外せません</p>
+    </div>
+    <button type="submit" class="btn primary block">保存する</button>
+    <button type="button" id="cancel" class="btn block">やめる</button>
+  </form>
+</div>
+</main>
+</body>
+</html>
