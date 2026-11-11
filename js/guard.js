@@ -2,8 +2,10 @@
  * ログインが要る画面の入口の確認と、上の帯（「〇〇でログイン中」・ログアウト）
  *
  *   MP.guard.enter({ admin, allowTemp }) → Promise<me>（auth.me の値）
+ *   MP.guard.enter({ admin, allowTemp, load: { action, args } }) → Promise<{ me, res }>（res はその処理の答え。問い合わせ1回）
  *     admin     … 管理者でなければ home へ戻す
  *     allowTemp … 仮パスワードのままでも入れる（パスワードの変更の画面だけ）
+ *     load      … 画面のデータの処理。その答えに付く me を使い、auth.me を別に聞かない（me が無ければ聞き直す）
  *
  * 画面の出し分けは見た目だけ。本当の守りは、サーバーの権限の確認
  */
@@ -60,22 +62,41 @@
   MP.guard = {
     ROLE_ADMIN: ROLE_ADMIN,
     isAdmin: function (me) { return !!me && me.role === ROLE_ADMIN; },
+    /*
+     * load: { action, args } … 画面のデータの処理。auth.me を別に聞かずに、その処理の答えに付く me を使う（問い合わせ1回）。
+     *   返すもの: { me, res }（res はその処理の答え。ok のときだけ返る）
+     *   答えに me が無い（古いサーバー）ときは、auth.me を聞き直す
+     * load が無いとき: 今までどおり auth.me を聞き、me を返す
+     */
     enter: function (opts) {
       var o = opts || {};
       var never = new Promise(function () {});
       if (!MP.store.deviceKey()) { MP.go('register.html'); return never; }
       if (!MP.store.token()) { MP.go('login.html'); return never; }
-      return MP.api.call('auth.me', {}).then(function (res) {
-        if (!res.ok) {
-          MP.ui.pageMessage(res.message + '\n画面を読み込み直してください', 'error');
-          return never;
-        }
-        var me = res.data;
-        if (me.mustChangePassword && !o.allowTemp) { MP.go('password.html'); return never; }
-        if (o.admin && me.role !== ROLE_ADMIN) { MP.go('home.html'); return never; }
+      function failed(res) {
+        MP.ui.pageMessage(res.message + '\n画面を読み込み直してください', 'error');
+        return never;
+      }
+      function pass(me) {
+        if (me.mustChangePassword && !o.allowTemp) { MP.go('password.html'); return false; }
+        if (o.admin && me.role !== ROLE_ADMIN) { MP.go('home.html'); return false; }
         renderTopbar(me, o);
         MP.ui.showFlash();
-        return me;
+        return true;
+      }
+      if (!o.load) {
+        return MP.api.call('auth.me', {}).then(function (res) {
+          if (!res.ok) return failed(res);
+          return pass(res.data) ? res.data : never;
+        });
+      }
+      return MP.api.call(o.load.action, o.load.args || {}).then(function (res) {
+        if (!res.ok) return failed(res);
+        if (res.me && typeof res.me === 'object') return pass(res.me) ? { me: res.me, res: res } : never;
+        return MP.api.call('auth.me', {}).then(function (r2) {
+          if (!r2.ok) return failed(r2);
+          return pass(r2.data) ? { me: r2.data, res: res } : never;
+        });
       });
     },
   };

@@ -3,7 +3,7 @@
   'use strict';
   MP.boot.start(function () {
     var ui = MP.ui, $ = ui.$, el = ui.el;
-    return MP.guard.enter({ admin: true }).then(function () {
+    return MP.guard.enter({ admin: true, load: { action: 'auth.admin.status' } }).then(function (entered) {
       $('admin').hidden = false;
 
       function kv(pairs) {
@@ -85,15 +85,17 @@
         if (!rows.length) list.appendChild(el('li', { class: 'sub', text: '記録はありません' }));
       }
 
+      function apply(r) {
+        if (!r.ok) ui.pageMessage(r.message, 'error'); else render(r.data);
+        renderTimings();
+      }
+
       function load() {
-        return MP.api.call('auth.admin.status', {}).then(function (r) {
-          if (!r.ok) ui.pageMessage(r.message, 'error'); else render(r.data);
-          renderTimings();
-        });
+        return MP.api.call('auth.admin.status', {}).then(apply);
       }
 
       $('refresh').addEventListener('click', function () { ui.run(load); });
-      return load();
+      apply(entered.res); // 開いたときは、入口の問い合わせの答えをそのまま使う（問い合わせ1回）
     });
   });
 })();

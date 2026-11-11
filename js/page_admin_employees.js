@@ -3,7 +3,7 @@
   'use strict';
   MP.boot.start(function () {
     var ui = MP.ui, $ = ui.$, el = ui.el;
-    return MP.guard.enter({ admin: true }).then(function () {
+    return MP.guard.enter({ admin: true, load: { action: 'master.admin.list' } }).then(function (entered) {
       var save = MP.api.saver();
       var data = { employees: [], departments: [], today: '', options: { roles: [], employmentTypes: [], breakTypes: [] } };
       var currentId = '';   // 詳しい画面で開いている社員
@@ -199,15 +199,17 @@
         });
       }
 
+      function apply(r) {
+        if (!r.ok) { ui.pageMessage(r.message, 'error'); return false; }
+        data = r.data;
+        hist = histCtl($('hist-fields'), 'h');
+        addHist = histCtl($('add-hist'), 'ah');
+        renderList();
+        return true;
+      }
+
       function load() {
-        return MP.api.call('master.admin.list', {}).then(function (r) {
-          if (!r.ok) { ui.pageMessage(r.message, 'error'); return false; }
-          data = r.data;
-          hist = histCtl($('hist-fields'), 'h');
-          addHist = histCtl($('add-hist'), 'ah');
-          renderList();
-          return true;
-        });
+        return MP.api.call('master.admin.list', {}).then(apply);
       }
 
       /** 読み込み直して、開いていた社員の詳しい画面（いなければ一覧）を出す */
@@ -436,7 +438,8 @@
 
       $('back').addEventListener('click', function () { currentId = ''; ui.pageMessage(''); show('list-view'); });
 
-      return load().then(function (ok) { if (ok) { $('emp').hidden = false; show('list-view'); } });
+      // 開いたときは、入口の問い合わせの答えをそのまま使う（問い合わせ1回）
+      if (apply(entered.res)) { $('emp').hidden = false; show('list-view'); }
     });
   });
 })();

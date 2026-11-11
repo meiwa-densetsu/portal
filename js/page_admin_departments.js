@@ -3,7 +3,7 @@
   'use strict';
   MP.boot.start(function () {
     var ui = MP.ui, $ = ui.$, el = ui.el;
-    return MP.guard.enter({ admin: true }).then(function () {
+    return MP.guard.enter({ admin: true, load: { action: 'master.admin.list' } }).then(function (entered) {
       var save = MP.api.saver();
       var depts = [];
       var editing = null; // 直している部署（新しい部署なら null）
@@ -26,13 +26,15 @@
         if (!depts.length) list.appendChild(el('li', { class: 'sub', text: '部署はまだありません。「部署を追加」から作ってください' }));
       }
 
+      function apply(r) {
+        if (!r.ok) { ui.pageMessage(r.message, 'error'); return; }
+        depts = r.data.departments;
+        render();
+        $('list-view').hidden = !$('edit-view').hidden;
+      }
+
       function load() {
-        return MP.api.call('master.admin.list', {}).then(function (r) {
-          if (!r.ok) { ui.pageMessage(r.message, 'error'); return; }
-          depts = r.data.departments;
-          render();
-          $('list-view').hidden = !$('edit-view').hidden;
-        });
+        return MP.api.call('master.admin.list', {}).then(apply);
       }
 
       function open(d) {
@@ -78,7 +80,7 @@
         });
       });
 
-      return load();
+      apply(entered.res); // 開いたときは、入口の問い合わせの答えをそのまま使う（問い合わせ1回）
     });
   });
 })();

@@ -34,7 +34,10 @@
     var o;
     try { o = JSON.parse(text); } catch (e) { return network(); }
     if (!o || typeof o !== 'object') return network();
-    if (o.ok === true && Object.prototype.hasOwnProperty.call(o, 'data')) return { ok: true, data: o.data };
+    if (o.ok === true && Object.prototype.hasOwnProperty.call(o, 'data')) {
+      // me … ログインが要る処理の答えに付く「自分の情報」（auth.me と同じ中身。画面を開くときに使う）
+      return o.me && typeof o.me === 'object' ? { ok: true, data: o.data, me: o.me } : { ok: true, data: o.data };
+    }
     if (o.ok === false && o.error && typeof o.error.code === 'string' && o.error.code && typeof o.error.message === 'string') {
       return { ok: false, code: o.error.code, message: o.error.message };
     }

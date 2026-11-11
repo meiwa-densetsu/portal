@@ -3,7 +3,8 @@
   'use strict';
   MP.boot.start(function () {
     var ui = MP.ui, $ = ui.$, el = ui.el;
-    return MP.guard.enter({}).then(function (me) {
+    return MP.guard.enter({ load: { action: 'auth.myDeviceCodes' } }).then(function (entered) {
+      var me = entered.me;
       $('devices').hidden = false;
       var input = $('new-name');
       var homeSteps = false;
@@ -57,13 +58,15 @@
         ]);
       }
 
+      function apply(r) {
+        var list = ui.clear($('code-list'));
+        if (!r.ok) { list.appendChild(el('li', { text: '一覧を読み込めませんでした。「更新」を押してください' })); return; }
+        if (!r.data.length) { list.appendChild(el('li', { class: 'sub', text: '最近7日に出したコードはありません' })); return; }
+        r.data.forEach(function (x) { list.appendChild(line(x)); });
+      }
+
       function load() {
-        return MP.api.call('auth.myDeviceCodes', {}).then(function (r) {
-          var list = ui.clear($('code-list'));
-          if (!r.ok) { list.appendChild(el('li', { text: '一覧を読み込めませんでした。「更新」を押してください' })); return; }
-          if (!r.data.length) { list.appendChild(el('li', { class: 'sub', text: '最近7日に出したコードはありません' })); return; }
-          r.data.forEach(function (x) { list.appendChild(line(x)); });
-        });
+        return MP.api.call('auth.myDeviceCodes', {}).then(apply);
       }
 
       $('issue-form').addEventListener('submit', function (ev) {
@@ -83,7 +86,7 @@
 
       $('refresh').addEventListener('click', function () { ui.run(load); });
       document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') load(); });
-      return load();
+      apply(entered.res); // 開いたときは、入口の問い合わせの答えをそのまま使う（問い合わせ1回）
     });
   });
 })();
