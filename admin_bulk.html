@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>まとめて登録｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/style.css?v=3">
+<script src="js/boot.js?v=3" defer></script>
+<script src="js/config.js?v=3" defer></script>
+<script src="js/store.js?v=3" defer></script>
+<script src="js/ui.js?v=3" defer></script>
+<script src="js/api.js?v=3" defer></script>
+<script src="js/guard.js?v=3" defer></script>
+<script src="js/bulk.js?v=3" defer></script>
+<script src="js/page_admin_bulk.js?v=3" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<div id="bulk" hidden>
+  <h1>Excel でまとめて登録</h1>
+  <p class="sub">パソコンでの利用をおすすめします。部署を先に登録してから、社員を登録してください。表では、社員を消す・利用停止・招待はできません（社員の管理の画面で1人ずつ行います）。</p>
+
+  <div id="pending" class="card" hidden>
+    <h2>前回の続き</h2>
+    <p id="pending-text"></p>
+    <ul id="pending-list" class="list bulk-list"></ul>
+    <button type="button" id="resume" class="btn primary block">前回の続きを確かめる</button>
+  </div>
+
+  <div id="main">
+    <div class="tabs" role="tablist">
+      <button type="button" id="tab-dept" class="btn" role="tab" aria-selected="true">部署</button>
+      <button type="button" id="tab-emp" class="btn" role="tab" aria-selected="false">社員</button>
+    </div>
+    <div class="card">
+      <h2>1. 今の内容を書き出す</h2>
+      <p id="export-hint" class="sub"></p>
+      <button type="button" id="export" class="btn block">今の内容を書き出す（コピー）</button>
+      <div id="export-fallback" class="field" hidden>
+        <label for="export-text">コピーできませんでした。下の文字を全部選んで（Ctrl + A）コピーしてください</label>
+        <textarea id="export-text" readonly></textarea>
+      </div>
+    </div>
+    <div class="card">
+      <h2>2. Excel で書き足して、貼り付ける</h2>
+      <div class="field">
+        <label for="paste">Excel で表を見出しの行から選んでコピーし、ここに貼り付けてください</label>
+        <textarea id="paste" spellcheck="false" autocomplete="off"></textarea>
+        <p id="paste-hint" class="hint"></p>
+      </div>
+      <button type="button" id="check" class="btn primary block">確かめる</button>
+    </div>
+    <div id="preview" class="card" hidden>
+      <h2>3. 確かめる</h2>
+      <p id="preview-summary"></p>
+      <ul id="preview-list" class="list bulk-list"></ul>
+      <button type="button" id="register" class="btn primary block" hidden></button>
+    </div>
+    <div id="result" class="card" hidden>
+      <h2>結果</h2>
+      <p id="progress" role="status"></p>
+      <ul id="result-list" class="list bulk-list"></ul>
+      <ul id="followup" class="list bulk-list"></ul>
+      <a id="to-employees" class="btn block" href="admin_employees.html" hidden>社員の管理の画面へ（招待・利用の再開）</a>
+    </div>
+  </div>
+  <a class="btn block" href="admin_employees.html">社員の管理へ戻る</a>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

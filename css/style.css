@@ -191,6 +191,19 @@ table.grid th { font-size: var(--fs-small); color: var(--c-sub); white-space: no
 
 .framed-note { padding: var(--sp-5); text-align: center; }
 
+/* まとめて登録（admin_bulk.html） */
+textarea {
+  width: 100%; min-height: 8em; font: inherit; font-size: var(--fs-small); color: inherit; background: var(--c-surface);
+  border: 1px solid var(--c-sub); border-radius: var(--radius); padding: var(--sp-2) var(--sp-3); white-space: pre; overflow: auto;
+}
+textarea:focus-visible { outline: 3px solid var(--c-primary); outline-offset: 2px; }
+.tabs { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.tabs .btn { flex: 1 1 0; }
+.tabs .btn[aria-selected="true"] { color: var(--c-primary-text); background: var(--c-primary); }
+.bulk-list > li .bulk-op { font-size: var(--fs-small); margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
+.bulk-list > li .bulk-err { color: var(--c-danger); font-weight: 700; font-size: var(--fs-small); margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
+.bulk-list > li .bulk-note { color: var(--c-warn); font-size: var(--fs-small); margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
+
 @media (min-width: 800px) {
   .menu.cols { grid-template-columns: repeat(3, 1fr); }
   .table-wrap { display: block; }
