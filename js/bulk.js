@@ -13,8 +13,13 @@
   'use strict';
 
   var DEPT_HEADERS = ['部署ID', '部署の名前', '表示順', '使っている'];
-  var EMP_HEADERS = ['社員ID', '名前', '表示順', '入社日', '生年月日', '適用開始日', '権限', '部署', '閲覧部署', '雇用区分', '1日の所定労働時間', '休憩方式', '状態'];
-  var EMP_EXPORT_ONLY = ['状態'];
+  var EMP_HEADERS = ['社員ID', '名前', '表示順', '入社日', '生年月日', '適用開始日', '権限', '部署', '閲覧部署', '雇用区分', '1日の所定労働時間', '休憩方式', 'カレンダー', '状態'];
+  /**
+   * 貼り付けで無くてもよい列。「カレンダー」は手順5で足した列で、前の版で書き出した表には無い（無ければカレンダーは変えない。
+   * 計画 stage1-step5-plan.md 第4章）。空を許す項目なので、下の「全部空なら変えない・一部だけ空は誤り」の判定（HIST_COLS）には入れない
+   */
+  var EMP_OPTIONAL = ['状態', 'カレンダー'];
+  var CAL_COL = 'カレンダー';
   var HIST_COLS = ['権限', '部署', '閲覧部署', '雇用区分', '1日の所定労働時間', '休憩方式'];
   var NAME_MAX = 30;
   var ORDER_MAX = 9999;
@@ -159,6 +164,7 @@
     var missing = headers.filter(function (h) { return (optional || []).indexOf(h) < 0 && !Object.prototype.hasOwnProperty.call(index, h); });
     if (missing.length) return { fatal: '列がありません: ' + missing.join('、') + '（見出しの行から選んでコピーしてください）' };
     return {
+      has: function (h) { return Object.prototype.hasOwnProperty.call(index, h); },
       rows: lines.slice(1).map(function (r) {
         return {
           line: r.line,
@@ -282,12 +288,31 @@
       h.employmentType || '', fmtMinutes(h.dailyMinutes), h.breakType || ''];
   }
 
+  function calNameOf(data, id) {
+    var c = (data.calendars || []).filter(function (x) { return x.calendarId === id; })[0];
+    return c ? c.name : '';
+  }
+
   function exportEmployees(data) {
     return toTsv(EMP_HEADERS, data.employees.map(function (e) {
       var ef = effective(e.history, data.today, data.options.roles);
       var cells = ef.row ? histCells(data, ef.row) : ['', '', '', '', '', ''];
-      return [e.employeeId, e.name, e.order === null ? '' : e.order, fmtDateOut(e.joinDate), fmtDateOut(e.birthDate), ''].concat(cells).concat([statusText(e)]);
+      return [e.employeeId, e.name, e.order === null ? '' : e.order, fmtDateOut(e.joinDate), fmtDateOut(e.birthDate), ''].concat(cells)
+        .concat([ef.row ? calNameOf(data, ef.row.calendarId) : '', statusText(e)]);
     }));
+  }
+
+  /**
+   * カレンダーの名前から ID を決める（部署と同じ決まり）。使っていないカレンダーは、今の値と同じ（allowIds）ときだけ。
+   * 名前を変えた後の前の名前は「ありません」の誤り
+   */
+  function resolveCalendar(data, name, allowIds) {
+    var key = nameKey(name);
+    var hits = (data.calendars || []).filter(function (c) { return nameKey(c.name) === key; });
+    if (hits.length > 1) return { error: '「' + name + '」という名前のカレンダーが2つあります（カレンダーの名前を直してください）' };
+    if (!hits.length) return { error: '「' + name + '」というカレンダーがありません（名前を変えたときは、社員の表を書き出し直してください）' };
+    if (hits[0].active || (allowIds || []).indexOf(hits[0].calendarId) >= 0) return { id: hits[0].calendarId };
+    return { error: '「' + name + '」は使っていないカレンダーです' };
   }
 
   /**
@@ -306,8 +331,9 @@
   }
 
   function planEmployees(text, data) {
-    var t = readTable(text, EMP_HEADERS, EMP_EXPORT_ONLY);
+    var t = readTable(text, EMP_HEADERS, EMP_OPTIONAL);
     if (t.fatal) return { fatal: t.fatal };
+    var hasCal = t.has(CAL_COL);
     var o = data.options;
     var byId = {};
     data.employees.forEach(function (e) { byId[e.employeeId] = e; });
@@ -385,6 +411,29 @@
         if (o.breakTypes.indexOf(bt) < 0) row.errors.push('休憩方式は ' + o.breakTypes.join('・') + ' のどれかにしてください');
         if (row.errors.length === before) next = { since: since, role: role, deptId: dept.id, viewDeptIds: viewIds, employmentType: et, dailyMinutes: minutes, breakType: bt };
       }
+
+      // カレンダー（列があるときだけ）: 空 → 未設定、名前 → ID。列が無ければ変えない（calendarId のキーを送らない）
+      var calId = null;
+      var curCal = effRow ? str(effRow.calendarId) : '';
+      if (hasCal) {
+        var calText = r.get(CAL_COL);
+        if (calText === '') calId = '';
+        else {
+          var rc = resolveCalendar(data, calText, effRow ? [curCal] : []);
+          if (rc.error) row.errors.push('カレンダー: ' + rc.error);
+          else calId = rc.id;
+        }
+      }
+      if (calId !== null && !row.errors.length) {
+        if (next) next.calendarId = calId;
+        else if (cur && calId !== curCal) {
+          // 権限などは変えずに、カレンダーだけを変える: その日の時点の今の内容に、カレンダーだけを重ねた行にする
+          if (ef.broken) row.errors.push('この人の履歴に正しくない行があります（' + ef.broken + '）。社員の管理の画面で直してください');
+          else if (!effRow) row.errors.push('カレンダーだけを変えるには、先に権限などの履歴が要ります（権限〜休憩方式も入れてください）');
+          else next = { since: since, role: effRow.role, deptId: effRow.deptId, viewDeptIds: (effRow.viewDeptIds || []).slice(), employmentType: effRow.employmentType,
+            dailyMinutes: effRow.dailyMinutes, breakType: effRow.breakType, calendarId: calId };
+        }
+      }
       if (row.errors.length) return row;
 
       var group = 'L' + r.line;
@@ -411,11 +460,15 @@
           label: '基本（' + cur.employeeId + '）: ' + diffs.join('・'), line: r.line, group: group, part: 'basic' });
       }
       if (next) {
+        var withCal = Object.prototype.hasOwnProperty.call(next, 'calendarId');
         var same = effRow && effRow.role === next.role && effRow.deptId === next.deptId && str(effRow.viewDeptIds) === str(next.viewDeptIds) &&
-          effRow.employmentType === next.employmentType && effRow.dailyMinutes === next.dailyMinutes && effRow.breakType === next.breakType;
+          effRow.employmentType === next.employmentType && effRow.dailyMinutes === next.dailyMinutes && effRow.breakType === next.breakType &&
+          (!withCal || curCal === next.calendarId);
         if (!same) {
           var sameDay = cur.history.filter(function (h) { return h.since === since; });
           var base = sameDay.length === 1 ? sameDay[0] : null;
+          var baseArgs = base ? { since: base.since, role: base.role, deptId: base.deptId, viewDeptIds: base.viewDeptIds, employmentType: base.employmentType, dailyMinutes: base.dailyMinutes, breakType: base.breakType } : null;
+          if (baseArgs && withCal) baseArgs.calendarId = str(base.calendarId);
           var hd = [];
           if (!effRow || effRow.role !== next.role) hd.push('権限 ' + (effRow ? effRow.role : '—') + ' → ' + next.role);
           if (!effRow || effRow.deptId !== next.deptId) hd.push('部署 ' + (effRow ? deptNameOf(data, effRow.deptId) : '—') + ' → ' + deptNameOf(data, next.deptId));
@@ -423,9 +476,10 @@
           if (!effRow || effRow.employmentType !== next.employmentType) hd.push('雇用区分 → ' + next.employmentType);
           if (!effRow || effRow.dailyMinutes !== next.dailyMinutes) hd.push('所定 → ' + fmtMinutes(next.dailyMinutes));
           if (!effRow || effRow.breakType !== next.breakType) hd.push('休憩方式 → ' + next.breakType);
+          if (withCal && (!effRow || curCal !== next.calendarId)) hd.push('カレンダー → ' + (next.calendarId ? calNameOf(data, next.calendarId) : '未設定'));
           row.ops.push({ action: 'master.admin.saveHistory',
             args: base
-              ? { employeeId: cur.employeeId, baseSince: since, base: { since: base.since, role: base.role, deptId: base.deptId, viewDeptIds: base.viewDeptIds, employmentType: base.employmentType, dailyMinutes: base.dailyMinutes, breakType: base.breakType }, next: next }
+              ? { employeeId: cur.employeeId, baseSince: since, base: baseArgs, next: next }
               : { employeeId: cur.employeeId, baseSince: null, base: null, next: next },
             label: '履歴（' + cur.employeeId + '）: ' + fmtDateJa(since) + 'から ' + hd.join('・') + (base ? '（その日の行を直す）' : '（行を足す）'),
             line: r.line, group: group, part: 'history' });
@@ -450,7 +504,7 @@
 
   var api = {
     DEPT_HEADERS: DEPT_HEADERS, EMP_HEADERS: EMP_HEADERS,
-    nameKey: nameKey, parseDate: parseDate, parseMinutes: parseMinutes, effective: effective, splitTsv: splitTsv,
+    nameKey: nameKey, parseDate: parseDate, parseMinutes: parseMinutes, effective: effective, splitTsv: splitTsv, cellOut: cellOut,
     exportDepartments: exportDepartments, exportEmployees: exportEmployees, planDepartments: planDepartments, planEmployees: planEmployees,
     fmtDateJa: fmtDateJa,
   };

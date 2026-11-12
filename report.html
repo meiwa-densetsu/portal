@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>日報｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=4">
+<script src="js/boot.js?v=4" defer></script>
+<script src="js/config.js?v=4" defer></script>
+<script src="js/store.js?v=4" defer></script>
+<script src="js/ui.js?v=4" defer></script>
+<script src="js/api.js?v=4" defer></script>
+<script src="js/guard.js?v=4" defer></script>
+<script src="gen/calc_worktime.js?v=4" defer></script>
+<script src="gen/calc_report.js?v=4" defer></script>
+<script src="js/report_text.js?v=4" defer></script>
+<script src="js/page_report.js?v=4" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1 id="title">日報</h1>
+  <div class="item-actions">
+    <a id="to-grid" class="btn" href="report_grid.html">表で入力</a>
+  </div>
+  <div id="admin-bar" class="card" hidden>
+    <div class="field">
+      <label for="emp-select">社員</label>
+      <select id="emp-select"></select>
+    </div>
+    <p id="other-note" class="msg warn" hidden></p>
+    <p id="recalc-note" class="msg warn" hidden></p>
+    <p id="stale-note" class="msg warn" hidden></p>
+    <div class="item-actions"><button type="button" id="recalc" class="btn" hidden>計算し直す</button></div>
+  </div>
+
+  <div class="report-layout">
+    <section id="list-pane" aria-labelledby="period-label">
+      <div class="period-nav">
+        <button type="button" id="prev" class="btn">前の期間</button>
+        <h2 id="period-label" class="period-label"></h2>
+        <button type="button" id="next" class="btn">次の期間</button>
+      </div>
+      <div class="card">
+        <dl id="totals" class="kv"></dl>
+        <p class="sub">所定を超えた時間は振替に積みます。足りない時間は有給などで埋めます（休暇の申請ができてから）。正式な給与計算ではありません（目安です）。</p>
+      </div>
+      <ul id="days" class="day-list"></ul>
+    </section>
+
+    <section id="form-pane" class="card" aria-labelledby="form-title" hidden>
+      <h2 id="form-title"></h2>
+      <p id="form-sched" class="sub"></p>
+      <p id="form-note" class="msg warn" hidden></p>
+      <div id="entries"></div>
+      <div class="item-actions"><button type="button" id="add-entry" class="btn">勤務を足す</button></div>
+      <div class="field">
+        <label for="content">施工内容</label>
+        <input type="text" id="content" autocomplete="off">
+        <p id="content-count" class="hint"></p>
+      </div>
+      <div class="field">
+        <label for="note">備考</label>
+        <input type="text" id="note" autocomplete="off">
+        <p id="note-count" class="hint"></p>
+      </div>
+      <div id="result" class="result" aria-live="polite"></div>
+      <p class="sub">正式な給与計算ではありません（目安です）。</p>
+      <div class="item-actions">
+        <button type="button" id="copy-prev" class="btn">前日と同じ</button>
+        <button type="button" id="use-pattern" class="btn">定型パターンから</button>
+        <button type="button" id="make-pattern" class="btn">定型パターンにする</button>
+      </div>
+      <div class="item-actions">
+        <button type="button" id="save" class="btn primary">保存</button>
+        <button type="button" id="close-form" class="btn">一覧へ戻る</button>
+      </div>
+    </section>
+  </div>
+
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

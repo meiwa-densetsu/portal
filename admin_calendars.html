@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>会社カレンダー｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=4">
+<script src="js/boot.js?v=4" defer></script>
+<script src="js/config.js?v=4" defer></script>
+<script src="js/store.js?v=4" defer></script>
+<script src="js/ui.js?v=4" defer></script>
+<script src="js/api.js?v=4" defer></script>
+<script src="js/guard.js?v=4" defer></script>
+<script src="gen/calc_calendar.js?v=4" defer></script>
+<script src="js/calendar_view.js?v=4" defer></script>
+<script src="js/page_admin_calendars.js?v=4" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="list-view" hidden>
+  <h1>会社カレンダー</h1>
+  <p id="unassigned" class="msg warn" hidden></p>
+  <div class="card">
+    <p class="sub">出勤日・休み・有給推奨日を、1年（5月1日〜4月30日）ごとに決めます。どの社員がどのカレンダーかは「社員の管理」で選びます。社員はアプリではカレンダーを見ません。</p>
+    <ul id="cal-list" class="list"></ul>
+    <div class="item-actions"><button type="button" id="add" class="btn primary">カレンダーを追加</button><a class="btn" href="admin_employee_calendar.html">社員ごとの入れ替え</a></div>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+
+<div id="edit-view" hidden>
+  <h1 id="edit-title">カレンダーを追加</h1>
+  <form id="edit-form" class="card" novalidate>
+    <div class="field">
+      <label for="cal-name">カレンダーの名前</label>
+      <input type="text" id="cal-name" maxlength="60" autocomplete="off">
+      <p class="hint">例「通信班」「鉄道班」「名鉄EI出向班」（30文字まで）</p>
+    </div>
+    <div class="field">
+      <label for="cal-order">表示順</label>
+      <input type="text" id="cal-order" inputmode="numeric" maxlength="4" autocomplete="off">
+      <p class="hint">一覧に並ぶ順番です（1〜9999。小さいほうが上）</p>
+    </div>
+    <div id="active-field" class="field" hidden>
+      <label class="check" for="cal-active"><input type="checkbox" id="cal-active"> 使っている</label>
+      <p class="hint">使わなくなったカレンダーは、チェックを外します。新しく社員に割り当てられなくなります（今割り当てている人は、そのままです）</p>
+    </div>
+    <button type="submit" class="btn primary block">保存する</button>
+    <button type="button" id="cancel" class="btn block">やめる</button>
+  </form>
+</div>
+
+<div id="days-view" hidden>
+  <h1 id="days-title"></h1>
+  <div class="cal-actions">
+    <button type="button" id="prev-period" class="btn">前の年度</button>
+    <button type="button" id="next-period" class="btn">次の年度</button>
+    <button type="button" id="days-back" class="btn">一覧へ戻る</button>
+  </div>
+  <p id="days-status" class="msg info"></p>
+  <div class="card">
+    <dl id="days-sum" class="cal-sum"></dl>
+    <p class="hint">協定の日数・時間と見比べてください（アプリでは確かめません）。</p>
+  </div>
+  <div class="card">
+    <p class="sub">日を押すと「出勤 → 休み → 有給推奨 → 出勤」の順に変わります。日曜は法定休日なので変えられません。変えたら下の「保存する」を押します。</p>
+    <div id="legend"></div>
+    <div id="months"></div>
+  </div>
+  <div class="card cal-savebar">
+    <div class="cal-actions">
+      <button type="button" id="save-days" class="btn primary">保存する</button>
+      <button type="button" id="confirm-days" class="btn">確定する</button>
+    </div>
+    <p id="confirm-hint" class="hint"></p>
+  </div>
+</div>
+</main>
+</body>
+</html>

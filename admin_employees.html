@@ -8,14 +8,16 @@
 <meta name="robots" content="noindex">
 <title>社員の管理｜名和電設ポータル</title>
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="css/style.css?v=3">
-<script src="js/boot.js?v=3" defer></script>
-<script src="js/config.js?v=3" defer></script>
-<script src="js/store.js?v=3" defer></script>
-<script src="js/ui.js?v=3" defer></script>
-<script src="js/api.js?v=3" defer></script>
-<script src="js/guard.js?v=3" defer></script>
-<script src="js/page_admin_employees.js?v=3" defer></script>
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=4">
+<script src="js/boot.js?v=4" defer></script>
+<script src="js/config.js?v=4" defer></script>
+<script src="js/store.js?v=4" defer></script>
+<script src="js/ui.js?v=4" defer></script>
+<script src="js/api.js?v=4" defer></script>
+<script src="js/guard.js?v=4" defer></script>
+<script src="js/page_admin_employees.js?v=4" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -24,12 +26,13 @@
 <div id="emp" hidden>
   <div id="list-view">
     <h1>社員の管理</h1>
+    <p id="cal-note" class="msg warn" hidden></p>
     <div class="card">
       <div class="item-actions"><button type="button" id="add" class="btn primary">社員を追加</button><a class="btn" href="admin_bulk.html">Excel でまとめて登録</a></div>
       <ul id="emp-cards" class="list cards-only"></ul>
       <div class="table-wrap">
         <table class="grid">
-          <thead><tr><th>名前</th><th>部署</th><th>権限</th><th>状態</th><th></th></tr></thead>
+          <thead><tr><th>名前</th><th>部署</th><th>権限</th><th>カレンダー</th><th>状態</th><th></th></tr></thead>
           <tbody id="emp-rows"></tbody>
         </table>
       </div>

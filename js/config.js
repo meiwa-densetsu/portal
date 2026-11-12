@@ -7,7 +7,7 @@
   var MP = window.MP = window.MP || {};
   MP.config = {
     EXEC_URL: 'https://script.google.com/macros/s/AKfycbzHNIBbtfQnjemKMHmp6Qh2PypQ82cq2OGoax2by7pDBg4Sht6cGMlVu80k9I38b5IrqA/exec',
-    API_VERSION: 1,
-    APP_VERSION: '3',
+    API_VERSION: 2,
+    APP_VERSION: '4',
   };
 })();

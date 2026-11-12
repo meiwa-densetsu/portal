@@ -8,14 +8,16 @@
 <meta name="robots" content="noindex">
 <title>ホーム｜名和電設ポータル</title>
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="css/style.css?v=3">
-<script src="js/boot.js?v=3" defer></script>
-<script src="js/config.js?v=3" defer></script>
-<script src="js/store.js?v=3" defer></script>
-<script src="js/ui.js?v=3" defer></script>
-<script src="js/api.js?v=3" defer></script>
-<script src="js/guard.js?v=3" defer></script>
-<script src="js/page_home.js?v=3" defer></script>
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=4">
+<script src="js/boot.js?v=4" defer></script>
+<script src="js/config.js?v=4" defer></script>
+<script src="js/store.js?v=4" defer></script>
+<script src="js/ui.js?v=4" defer></script>
+<script src="js/api.js?v=4" defer></script>
+<script src="js/guard.js?v=4" defer></script>
+<script src="js/page_home.js?v=4" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -24,7 +26,9 @@
 <div id="home" hidden>
   <h1>ホーム</h1>
   <div class="card">
-    <p class="sub">日報・勤務割・休暇の申請は準備中です。</p>
+    <h2>日報</h2>
+    <div class="menu"><a class="btn primary" href="report.html">日報を入れる</a></div>
+    <p class="sub">休暇の申請は準備中です。</p>
   </div>
   <div class="card">
     <h2>自分の設定</h2>
@@ -36,8 +40,12 @@
   <div id="admin-menu" class="card" hidden>
     <h2>管理者</h2>
     <div class="menu cols">
+      <a class="btn" href="report.html">社員の日報</a>
+      <a class="btn" href="admin_legal.html">法律上の時間外の目安</a>
       <a class="btn" href="admin_employees.html">社員の管理</a>
       <a class="btn" href="admin_departments.html">部署の管理</a>
+      <a class="btn" href="admin_calendars.html">会社カレンダー</a>
+      <a class="btn" href="admin_employee_calendar.html">社員ごとの入れ替え</a>
       <a class="btn" href="admin_devices.html">端末とロックの管理</a>
     </div>
   </div>

@@ -204,10 +204,133 @@ textarea:focus-visible { outline: 3px solid var(--c-primary); outline-offset: 2p
 .bulk-list > li .bulk-err { color: var(--c-danger); font-weight: 700; font-size: var(--fs-small); margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
 .bulk-list > li .bulk-note { color: var(--c-warn); font-size: var(--fs-small); margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
 
+/* 会社カレンダー（admin_calendars.html・admin_employee_calendar.html）。日のマスは、幅 390px でも高さ・幅とも 44px 以上 */
+.cal-sum { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-5); margin: 0; }
+.cal-sum div { display: flex; gap: var(--sp-2); align-items: baseline; }
+.cal-sum dt { color: var(--c-sub); font-size: var(--fs-small); }
+.cal-sum dd { margin: 0; font-weight: 700; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); font-size: var(--fs-small); margin-bottom: var(--sp-3); }
+.cal-legend span { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.cal-legend .cal-day { min-height: 28px; width: 32px; cursor: default; }
+.cal-months { display: grid; gap: var(--sp-5); grid-template-columns: 1fr; }
+.cal-month h3 { font-size: var(--fs-base); margin: 0 0 var(--sp-2); display: flex; justify-content: space-between; gap: var(--sp-2); }
+.cal-month h3 .sub { font-weight: 400; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.cal-head { text-align: center; font-size: var(--fs-small); color: var(--c-sub); }
+.cal-day {
+  min-height: 48px; min-width: 0; padding: 2px 0; margin: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font: inherit; font-size: var(--fs-small); line-height: 1.25; color: var(--c-text);
+  background: var(--c-surface); border: 1px solid var(--c-line); border-radius: 4px; cursor: pointer;
+}
+.cal-day .t { font-weight: 700; }
+.cal-day.H { background: var(--c-bg); color: var(--c-sub); }
+.cal-day.P { background: var(--c-ok-weak); color: var(--c-ok); border-color: var(--c-ok); }
+.cal-day.none { background: var(--c-bg); color: var(--c-sub); border-style: dashed; }
+.cal-day.changed { border: 2px solid var(--c-primary); }
+.cal-day.swap { border: 2px solid var(--c-warn); }
+.cal-day:disabled { cursor: default; opacity: 0.6; }
+.cal-blank { min-height: 48px; }
+.cal-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+/* 保存のボタンは、12か月を下までたどらなくても押せるように、画面の下に付いてくる */
+.cal-savebar { position: sticky; bottom: 0; z-index: 5; box-shadow: 0 -1px 4px rgba(20, 28, 40, 0.12); }
+.cal-actions .btn { flex: 1 1 10em; }
+
+/* 日報（report.html）。日のボタン・時刻の欄は、幅 390px でも高さ 44px 以上。色だけで分けず、字でも出す */
+.period-nav { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.period-nav .btn { flex: 0 0 auto; }
+.period-label { flex: 1 1 auto; text-align: center; margin: 0; font-size: var(--fs-base); }
+.day-list { list-style: none; margin: 0 0 var(--sp-4); padding: 0; display: grid; gap: var(--sp-1); }
+.day-item {
+  width: 100%; min-height: var(--tap); padding: var(--sp-2) var(--sp-3); margin: 0;
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; text-align: left;
+  font: inherit; color: var(--c-text); background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--radius); cursor: pointer;
+}
+.day-item:disabled { cursor: default; opacity: 0.5; }
+.day-item.selected { border: 2px solid var(--c-primary); background: var(--c-primary-weak); }
+.day-item.sun .day-date { color: var(--c-danger); }
+.day-item.sat .day-date { color: var(--c-primary); }
+.day-date { font-weight: 700; min-width: 7.5em; }
+.day-kind { font-size: var(--fs-small); color: var(--c-sub); min-width: 4em; }
+.day-state { margin-left: auto; font-size: var(--fs-small); }
+.day-state.missing { color: var(--c-warn); font-weight: 700; }
+.entry { border: 1px solid var(--c-line); border-radius: var(--radius); padding: var(--sp-3) var(--sp-4); margin: 0 0 var(--sp-4); min-width: 0; }
+.entry legend { font-weight: 700; padding: 0 var(--sp-1); }
+.entry-kind { font-weight: 700; color: var(--c-primary); margin: 0 0 var(--sp-2); min-height: 1.7em; }
+.time-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--sp-3); }
+.time-pick { display: flex; gap: var(--sp-1); align-items: center; }
+.time-colon { font-weight: 700; }
+.time-pick select { flex: 1 1 0; min-width: 0; }
+.result { background: var(--c-bg); border-radius: var(--radius); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); }
+.result .msg { margin: var(--sp-2) 0 0; }
+
+@media (min-width: 900px) {
+  .report-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--sp-5); align-items: start; }
+  .time-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (min-width: 760px) {
+  .cal-months { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1100px) {
+  .cal-months { grid-template-columns: repeat(3, 1fr); }
+}
+
 @media (min-width: 800px) {
   .menu.cols { grid-template-columns: repeat(3, 1fr); }
   .table-wrap { display: block; }
   .cards-only { display: none; }
   dialog .dialog-buttons { flex-direction: row-reverse; }
   dialog .dialog-buttons > * { flex: 1 1 0; }
+}
+
+/* ---------- 日報の表（手順7。計画 stage1-step7-plan.md 2-4）---------- */
+.wrap.full { max-width: none; }
+.grid-tools { flex-wrap: wrap; }
+.only-narrow { display: none; }
+@media (max-width: 899px) { .only-narrow { display: block; } }
+/* 表の箱の中だけを横・縦にスクロールする（ページは横にはみ出さない） */
+.grid-box { width: 100%; max-width: 100%; margin-bottom: var(--sp-4); }
+.grid-scroll { width: 100%; max-width: 100%; max-height: 70vh; overflow: auto; border: 1px solid var(--c-line); border-radius: var(--radius); background: var(--c-surface); }
+.grid-scroll { position: relative; }
+.grid-scroll:focus-within { outline: 3px solid var(--c-primary); outline-offset: 2px; }
+/* 文字を受ける見えない欄（日本語入力のため。見えないが、フォーカスは受ける） */
+.grid-sink { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; overflow: hidden; pointer-events: none; }
+table.report-grid { border-collapse: separate; border-spacing: 0; font-size: var(--fs-small); }
+table.report-grid th, table.report-grid td { border-right: 1px solid var(--c-line); border-bottom: 1px solid var(--c-line); padding: 0 var(--sp-2); height: 36px; white-space: nowrap; text-align: left; }
+table.report-grid thead th { position: sticky; background: var(--c-bg); font-weight: 700; z-index: 2; }
+table.report-grid thead tr:first-child th { top: 0; }
+table.report-grid thead tr:nth-child(2) th { top: 37px; }
+table.report-grid .grid-corner, table.report-grid .grid-head { position: sticky; left: 0; width: 88px; min-width: 88px; background: var(--c-bg); z-index: 1; }
+table.report-grid thead .grid-corner { z-index: 3; }
+table.report-grid .grid-group { text-align: center; }
+table.report-grid .grid-head.sun { color: var(--c-danger); }
+table.report-grid .grid-head.sat { color: var(--c-primary); }
+table.report-grid .grid-head.off::after { content: ' 休'; font-weight: 400; color: var(--c-sub); }
+.grid-cell { position: relative; cursor: cell; }
+.grid-cell.grid-col-time { min-width: 64px; }
+.grid-cell.grid-col-select { min-width: 64px; }
+.grid-cell.grid-col-text { min-width: 120px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.grid-cell.grid-col-calc { min-width: 64px; color: var(--c-sub); }
+td.grid-cell:last-child { min-width: 220px; white-space: normal; }
+.grid-cell.readonly { background: var(--c-bg); color: var(--c-sub); }
+.grid-cell.grid-col-calc.readonly { background: var(--c-surface); }
+.grid-cell.dirty { background: var(--c-warn-weak); }
+.grid-cell.err { background: var(--c-danger-weak); box-shadow: inset 0 0 0 2px var(--c-danger); }
+.grid-cell.st-err { color: var(--c-danger); font-weight: 700; }
+.grid-cell.st-dirty { color: var(--c-warn); }
+.grid-cell.st-ok { color: var(--c-ok); }
+.grid-cell.in-sel { background: var(--c-primary-weak); }
+.grid-cell.in-sel.err { background: var(--c-danger-weak); }
+.grid-cell.cur { box-shadow: inset 0 0 0 2px var(--c-primary); }
+.grid-cell.cur.err { box-shadow: inset 0 0 0 2px var(--c-danger); }
+table.report-grid tr.fill-to td { background: var(--c-primary-weak); }
+.grid-input { width: 100%; min-width: 0; height: 32px; font-size: var(--fs-small); border: 0; padding: 0; background: var(--c-surface); }
+.grid-handle { position: absolute; right: 0; bottom: 0; width: 9px; height: 9px; background: var(--c-primary); border: 1px solid var(--c-surface); cursor: ns-resize; z-index: 1; touch-action: none; }
+/* 指で押す端末: セルを押しやすい高さに */
+@media (pointer: coarse) {
+  table.report-grid th, table.report-grid td { height: var(--tap); }
+  table.report-grid thead tr:nth-child(2) th { top: calc(var(--tap) + 1px); }
+  .grid-input { height: calc(var(--tap) - 4px); font-size: var(--fs-base); }
+  .grid-handle { width: 16px; height: 16px; }
 }

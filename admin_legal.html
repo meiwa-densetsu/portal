@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>法律上の時間外の目安｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=4">
+<script src="js/boot.js?v=4" defer></script>
+<script src="js/config.js?v=4" defer></script>
+<script src="js/store.js?v=4" defer></script>
+<script src="js/ui.js?v=4" defer></script>
+<script src="js/api.js?v=4" defer></script>
+<script src="js/guard.js?v=4" defer></script>
+<script src="gen/calc_worktime.js?v=4" defer></script>
+<script src="js/page_admin_legal.js?v=4" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>法律上の時間外の目安</h1>
+  <p class="msg warn">会社の休憩の決まりで計算した推計です。実際に働いた時間とは違うことがあります。36協定を守れているかの確認には使えません。</p>
+  <div class="period-nav">
+    <button type="button" id="prev" class="btn">前の年度</button>
+    <h2 id="period-label" class="period-label"></h2>
+    <button type="button" id="next" class="btn">次の年度</button>
+  </div>
+  <div id="list-view">
+    <ul id="list" class="list card"></ul>
+  </div>
+  <div id="detail-view" class="card" hidden>
+    <h2 id="detail-title"></h2>
+    <div id="detail"></div>
+    <div class="item-actions"><button type="button" id="back" class="btn">一覧へ戻る</button></div>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

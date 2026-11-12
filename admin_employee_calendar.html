@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>社員ごとの入れ替え｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=4">
+<script src="js/boot.js?v=4" defer></script>
+<script src="js/config.js?v=4" defer></script>
+<script src="js/store.js?v=4" defer></script>
+<script src="js/ui.js?v=4" defer></script>
+<script src="js/api.js?v=4" defer></script>
+<script src="js/guard.js?v=4" defer></script>
+<script src="gen/calc_calendar.js?v=4" defer></script>
+<script src="js/calendar_view.js?v=4" defer></script>
+<script src="js/page_admin_employee_calendar.js?v=4" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<div id="main" hidden>
+  <h1>社員ごとの入れ替え</h1>
+  <div class="card">
+    <div class="field">
+      <label for="emp">社員</label>
+      <select id="emp"></select>
+    </div>
+    <div class="cal-actions">
+      <button type="button" id="prev-period" class="btn">前の年度</button>
+      <button type="button" id="next-period" class="btn">次の年度</button>
+    </div>
+  </div>
+  <div id="detail" hidden>
+    <h2 id="title"></h2>
+    <p id="ranges" class="sub"></p>
+    <p id="status" class="msg warn" hidden></p>
+    <div class="card">
+      <p class="sub">日を押すと、この人だけの出勤日・休みを入れ替えられます（「出勤 → 休み → 有給推奨」の順）。まとめて押してから「保存する」を押します。カレンダーそのものは変わりません。</p>
+      <p class="msg info">出勤日と休みを同じ週（月〜日）の中で入れ替えると、週の時間外が出にくくなります。週をまたぐと、もとの予定より多く働いた週に時間外が出ます。1日の実働が長い日などは、入れ替え方に関係なく時間外が出ます。</p>
+      <div id="legend"></div>
+      <div id="months"></div>
+    </div>
+    <div class="card cal-savebar">
+      <p id="pending" class="sub"></p>
+      <div class="cal-actions">
+        <button type="button" id="save" class="btn primary">保存する</button>
+        <button type="button" id="undo" class="btn">押した日を元に戻す</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>この人の入れ替えの記録</h2>
+      <ul id="swaps" class="list"></ul>
+    </div>
+  </div>
+  <div class="item-actions"><a class="btn" href="admin_calendars.html">会社カレンダーへ</a><a class="btn" href="home.html">ホームへ戻る</a></div>
+</div>
+</main>
+</body>
+</html>
