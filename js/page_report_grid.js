@@ -270,6 +270,11 @@
         ui.$('other-note').textContent = target ? data.employee.name + 'さんの日報を見ています。直すと修正履歴に残ります。' : '';
       }
       ui.$('use-pattern').hidden = !data.patterns;
+      // 締めた期間の知らせ（手順8 2-4。直せるかはサーバーが editable で決める）
+      var closed = !!(data.closing && data.closing.closed);
+      var note = !closed ? '' : data.editable ? '締めた期間です。直すと修正履歴に残ります。' : 'この期間は締めました。直すときは管理者に頼んでください。';
+      ui.$('closed-note').hidden = !note;
+      ui.$('closed-note').textContent = note;
       ui.$('to-day').href = 'report.html?view=day&date=' + encodeURIComponent(data.days[0].date) + (target ? '&employee=' + encodeURIComponent(target) : '');
     }
 

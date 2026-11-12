@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>日報の締め｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=5">
+<script src="js/boot.js?v=5" defer></script>
+<script src="js/config.js?v=5" defer></script>
+<script src="js/store.js?v=5" defer></script>
+<script src="js/ui.js?v=5" defer></script>
+<script src="js/api.js?v=5" defer></script>
+<script src="js/guard.js?v=5" defer></script>
+<script src="js/page_admin_closing.js?v=5" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>日報の締め</h1>
+  <p class="sub">締めた期間は、社員・部長は日報を直せなくなります（見るだけ）。管理者はいつでも直せ、直したことは修正履歴に残ります。締められるのは期間の終わりの次の日からです。締めた後も、ここで解除できます。</p>
+  <div class="period-nav">
+    <button type="button" id="prev" class="btn">前の年度</button>
+    <h2 id="year-label" class="period-label"></h2>
+    <button type="button" id="next" class="btn">次の年度</button>
+  </div>
+  <ul id="list" class="list card"></ul>
+  <a class="btn block" href="admin_changes.html">修正履歴を見る</a>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

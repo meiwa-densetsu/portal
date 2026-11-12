@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>日報の修正履歴｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=5">
+<script src="js/boot.js?v=5" defer></script>
+<script src="js/config.js?v=5" defer></script>
+<script src="js/store.js?v=5" defer></script>
+<script src="js/ui.js?v=5" defer></script>
+<script src="js/api.js?v=5" defer></script>
+<script src="js/guard.js?v=5" defer></script>
+<script src="gen/calc_worktime.js?v=5" defer></script>
+<script src="js/page_admin_changes.js?v=5" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>日報の修正履歴</h1>
+  <p class="sub">いつ・誰が・何を直したかを、新しい順に出します。</p>
+  <div class="card">
+    <div class="field">
+      <label for="emp-select">社員</label>
+      <select id="emp-select"></select>
+    </div>
+    <div class="period-nav">
+      <button type="button" id="prev" class="btn">前の期間</button>
+      <h2 id="period-label" class="period-label"></h2>
+      <button type="button" id="next" class="btn">次の期間</button>
+    </div>
+    <label class="check"><input type="checkbox" id="show-all">取りやめ・確認中の行も見る</label>
+  </div>
+  <p id="unreadable" class="msg warn" hidden></p>
+  <p id="empty" class="sub" hidden>この期間の修正履歴はありません。</p>
+  <ul id="list" class="list card"></ul>
+  <a class="btn block" href="admin_closing.html">日報の締めへ</a>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

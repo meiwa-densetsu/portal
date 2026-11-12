@@ -66,7 +66,16 @@
       ui.$('stale-note').textContent = data.summaryStaleDays ? '集計のずれが ' + data.summaryStaleDays + ' 日あります。「法律上の時間外の目安」の画面で「集計を作り直す」を押してください。' : '';
     }
 
+    /** 締めた期間の知らせ（手順8 2-4。直せるかはサーバーが editable で決める） */
+    function renderClosed() {
+      var closed = !!(data.closing && data.closing.closed);
+      var note = !closed ? '' : data.editable ? '締めた期間です。直すと修正履歴に残ります。' : 'この期間は締めました。直すときは管理者に頼んでください。';
+      ui.$('closed-note').hidden = !note;
+      ui.$('closed-note').textContent = note;
+    }
+
     function renderList() {
+      renderClosed();
       ui.$('title').textContent = data.employee.employeeId === (me && me.employeeId) ? '日報' : data.employee.name + 'さんの日報';
       ui.$('period-label').textContent = data.period.label;
       ui.$('next').disabled = !data.nextDate;
@@ -133,6 +142,7 @@
       ui.$('make-pattern').hidden = !own;
       renderEntries();
       update();
+      lockForm();
     }
 
     /** 分を「1時間」「1時間30分」「45分」の形に */
@@ -201,6 +211,17 @@
         box.appendChild(card);
       });
       ui.$('add-entry').hidden = entries.length >= data.rules.REPORT.ENTRY_MAX;
+      lockForm();
+    }
+
+    /** 直せない日（締めた期間など。サーバーの editable と、その日の canCalc）は、入力の欄とボタンを止める（「一覧へ戻る」だけ押せる） */
+    function lockForm() {
+      if (!current) return;
+      var editable = data.editable && current.canCalc;
+      Array.prototype.forEach.call(ui.$('form-pane').querySelectorAll('input, select, textarea, button'), function (el) {
+        if (el.id === 'close-form') return;
+        el.disabled = !editable; // 直せる日を開き直したら戻す
+      });
     }
 
     function counter(id, max) {
