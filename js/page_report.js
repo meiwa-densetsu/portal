@@ -129,11 +129,41 @@
         entries = back.entries.length ? back.entries : [emptyEntry()];
         ui.$('note').value = back.note;
         dirty = false;
+        var filled = fillFromTasks();
         renderForm();
+        if (filled) ui.pageMessage('完了したタスクから施工内容を入れました。確かめて保存してください', 'info');
         renderList();
         ui.$('form-pane').hidden = false;
         ui.$('form-pane').scrollIntoView({ block: 'start' });
       });
+    }
+
+    /**
+     * 完了したタスクを施工内容に入れる（タスクリストの計画 2-9）。入れる先は1つ: 日勤の勤務があれば日勤、無くて夜勤があれば夜勤、勤務が無ければ勤務1。
+     * その施工内容が空のときだけ（別の勤務には回さない）。画面の上だけで、保存は本人が押す。
+     * サーバーは本人が本人の日報を開いたときだけ completedTasks を返す。締めた期間・計算できない日・社員の画面を見ているときは入れない
+     */
+    function fillFromTasks() {
+      var texts = data.completedTasks ? data.completedTasks[current.date] : null;
+      if (!texts || !texts.length || !data.editable || !current.canCalc || MP.guard.viewing()) return false;
+      if (data.closing && data.closing.closed) return false; // 締めた期間は入れない（管理者本人でも。Codex 実装1回目 medium）
+      var target = -1;
+      ['day', 'night'].some(function (kind) {
+        for (var i = 0; i < entries.length; i++) {
+          if (CR.classifyShift(entries[i], CW, data.rules).kind === kind) { target = i; return true; }
+        }
+        return false;
+      });
+      if (target < 0) {
+        var hasTimes = entries.some(function (e) { return e.arrive || e.start || e.end || e.leave; });
+        if (hasTimes) return false; // 時刻はあるが日勤・夜勤に分けられない（入力の途中）ときは入れない
+        target = 0;
+      }
+      var e = entries[target];
+      if (String(e.content || '').trim() !== '') return false;
+      e.content = texts.filter(function (t) { return t; }).join('、');
+      dirty = true;
+      return true;
     }
 
     function renderForm() {

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>タスクリスト｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=7">
+<script src="js/boot.js?v=7" defer></script>
+<script src="js/config.js?v=7" defer></script>
+<script src="js/store.js?v=7" defer></script>
+<script src="js/ui.js?v=7" defer></script>
+<script src="js/api.js?v=7" defer></script>
+<script src="js/guard.js?v=7" defer></script>
+<script src="gen/calc_task.js?v=7" defer></script>
+<script src="js/bulk.js?v=7" defer></script>
+<script src="js/grid_core.js?v=7" defer></script>
+<script src="js/grid.js?v=7" defer></script>
+<script src="js/page_tasks.js?v=7" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>タスクリスト</h1>
+  <div class="card">
+    <div class="period-nav">
+      <button type="button" id="prev" class="btn">前の月</button>
+      <h2 id="month-label" class="period-label"></h2>
+      <button type="button" id="next" class="btn">次の月</button>
+    </div>
+    <div class="menu cols">
+      <button type="button" id="to-list" class="btn">日付ごとの一覧</button>
+      <button type="button" id="to-table" class="btn">月の表</button>
+      <button type="button" id="reload" class="btn">新しくする</button>
+    </div>
+    <p id="sending" class="sub" role="status" hidden>送っています…</p>
+    <div id="failed" class="msg warn" hidden></div>
+  </div>
+
+  <!-- パソコン: 月の表（列 = 担当・行 = 日付ごとのタスク） -->
+  <section id="table-pane" hidden>
+    <p class="sub">セルを選んで打つと、新しいタスク・内容の直しになります（Excel からの貼り付けもできます）。状態などは、セルを選んでから下のボタンで。</p>
+    <div class="menu cols grid-tools" id="task-tools">
+      <button type="button" id="t-complete" class="btn">完了</button>
+      <button type="button" id="t-reopen" class="btn">未完了に戻す</button>
+      <button type="button" id="t-defer" class="btn">先送り</button>
+      <button type="button" id="t-cancel" class="btn">取りやめ</button>
+      <button type="button" id="t-uncancel" class="btn">取りやめから戻す</button>
+      <button type="button" id="t-urgency" class="btn">急ぎ</button>
+      <button type="button" id="t-hide" class="btn">隠す／見せる</button>
+      <button type="button" id="t-up" class="btn">上へ</button>
+      <button type="button" id="t-down" class="btn">下へ</button>
+      <button type="button" id="t-delete" class="btn danger">消す</button>
+    </div>
+    <p id="sel-info" class="sub" aria-live="polite"></p>
+    <div id="grid" class="grid-box"></div>
+  </section>
+
+  <!-- スマホ: 日付ごとの一覧 -->
+  <section id="list-pane" hidden>
+    <div class="period-nav">
+      <button type="button" id="day-prev" class="btn">前の日</button>
+      <h2 id="day-label" class="period-label"></h2>
+      <button type="button" id="day-next" class="btn">次の日</button>
+    </div>
+    <label class="check"><input type="checkbox" id="show-all">全員の分を見る</label>
+    <div id="day-memo" class="card"></div>
+    <ul id="day-list" class="list card"></ul>
+    <div class="card" id="add-box">
+      <div class="field">
+        <label for="add-content">自分のタスクを足す</label>
+        <input type="text" id="add-content" autocomplete="off">
+      </div>
+      <button type="button" id="add-btn" class="btn primary block">足す</button>
+    </div>
+  </section>
+
+  <div class="menu cols">
+    <a class="btn" href="task_requests.html">依頼したもの</a>
+    <a class="btn" href="task_recurring.html">定型タスク</a>
+    <a class="btn" id="to-export" href="admin_task_export.html" hidden>Excel に出す</a>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

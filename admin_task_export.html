@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>タスクリストの Excel｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=7">
+<script src="js/boot.js?v=7" defer></script>
+<script src="js/config.js?v=7" defer></script>
+<script src="js/store.js?v=7" defer></script>
+<script src="js/ui.js?v=7" defer></script>
+<script src="js/api.js?v=7" defer></script>
+<script src="js/guard.js?v=7" defer></script>
+<script src="gen/calc_task.js?v=7" defer></script>
+<script src="vendor/exceljs-4.4.0.min.js?v=7" defer></script>
+<script src="js/task_export_layout.js?v=7" defer></script>
+<script src="js/page_admin_task_export.js?v=7" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>タスクリストの Excel</h1>
+  <p class="sub">月のタスクリストを Excel のファイルにします（1つのシート・A4 横の幅に収める）。文字の色は画面と同じです（完了 赤・先送り 緑・取りやめ 灰色）。</p>
+  <div class="card">
+    <div class="period-nav">
+      <button type="button" id="prev" class="btn">前の月</button>
+      <h2 id="month-label" class="period-label"></h2>
+      <button type="button" id="next" class="btn">次の月</button>
+    </div>
+  </div>
+  <button type="button" id="make" class="btn primary block" disabled>Excel を作る</button>
+  <p id="made" class="msg ok" role="status" hidden></p>
+  <div class="card">
+    <h2>ファイルの扱い</h2>
+    <p class="sub">会社のパソコンにだけ保存し、私物の端末に入れない・メールや LINE で送らない・要らなくなったら消してください。🔒のタスクも入ります。</p>
+  </div>
+  <a class="btn block" href="tasks.html">タスクリストへ</a>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

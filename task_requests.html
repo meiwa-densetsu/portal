@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>依頼したタスク｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=7">
+<script src="js/boot.js?v=7" defer></script>
+<script src="js/config.js?v=7" defer></script>
+<script src="js/store.js?v=7" defer></script>
+<script src="js/ui.js?v=7" defer></script>
+<script src="js/api.js?v=7" defer></script>
+<script src="js/guard.js?v=7" defer></script>
+<script src="gen/calc_task.js?v=7" defer></script>
+<script src="js/page_task_requests.js?v=7" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>依頼したタスク</h1>
+  <p class="sub">ほかの人に依頼したタスクの進み具合です。まだ終わっていないものを上に出します。</p>
+  <div id="just-done-box" class="card" hidden>
+    <h2>完了しました</h2>
+    <ul id="just-done" class="list"></ul>
+  </div>
+  <div class="card">
+    <h2>まだ終わっていないもの</h2>
+    <p id="open-empty" class="sub" hidden>ありません。</p>
+    <ul id="open" class="list"></ul>
+  </div>
+  <label class="check"><input type="checkbox" id="show-done">完了・取りやめたものも見る</label>
+  <div id="done-box" class="card" hidden>
+    <h2>完了・取りやめ</h2>
+    <ul id="done" class="list"></ul>
+  </div>
+  <a class="btn block" href="tasks.html">タスクリストへ</a>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>定型タスク｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=7">
+<script src="js/boot.js?v=7" defer></script>
+<script src="js/config.js?v=7" defer></script>
+<script src="js/store.js?v=7" defer></script>
+<script src="js/ui.js?v=7" defer></script>
+<script src="js/api.js?v=7" defer></script>
+<script src="js/guard.js?v=7" defer></script>
+<script src="gen/calc_task.js?v=7" defer></script>
+<script src="js/page_task_recurring.js?v=7" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>定型タスク</h1>
+  <p class="sub">毎日・決まった曜日・毎月決まった日に、タスクリストへ自動で入れるタスクです。その日になってタスクリストを開いたときに入ります。</p>
+  <div class="field" id="owner-box" hidden>
+    <label for="owner">担当</label>
+    <select id="owner"></select>
+  </div>
+  <ul id="list" class="list card"></ul>
+  <p id="empty" class="sub" hidden>定型タスクはまだありません。</p>
+  <button type="button" id="new" class="btn primary block">定型タスクを足す</button>
+
+  <form id="form" class="card" hidden>
+    <h2 id="form-title">定型タスク</h2>
+    <div class="field"><label for="f-content">内容</label><input type="text" id="f-content" autocomplete="off"></div>
+    <div class="field"><label for="f-urgency">急ぎ</label><select id="f-urgency"></select></div>
+    <div class="field"><label for="f-repeat">繰り返し</label><select id="f-repeat"></select></div>
+    <fieldset class="field" id="f-weekdays-box"><legend>曜日</legend><div id="f-weekdays" class="menu cols"></div></fieldset>
+    <div class="field" id="f-day-box"><label for="f-day">日（1〜31。その日が無い月は入りません）</label><input type="number" id="f-day" min="1" max="31"></div>
+    <label class="check"><input type="checkbox" id="f-business">会社の休みの日は入れない</label>
+    <label class="check"><input type="checkbox" id="f-hidden">自分と管理者だけに見せる（🔒）</label>
+    <div class="field"><label for="f-start">始める日</label><input type="date" id="f-start"></div>
+    <div class="field"><label for="f-end">終わる日（空なら決めない）</label><input type="date" id="f-end"></div>
+    <label class="check"><input type="checkbox" id="f-active" checked>使う（外すと止める）</label>
+    <button type="button" id="f-save" class="btn primary block">保存</button>
+    <button type="button" id="f-cancel" class="btn block">やめる</button>
+  </form>
+  <a class="btn block" href="tasks.html">タスクリストへ</a>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

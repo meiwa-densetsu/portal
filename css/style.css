@@ -351,3 +351,10 @@ table.report-grid tr.fill-to td { background: var(--c-primary-weak); }
 .manager-table td.over { font-weight: 700; }
 .row-fields { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2); align-items: center; margin: var(--sp-2) 0; }
 .share-days .day-state { margin-left: var(--sp-2); }
+/* タスクリスト（計画 stage2-tasklist-plan.md 2-8）: 状態は文字の色と文字（✓完了・（取りやめ）・→先送り）の両方で出す */
+.grid-cell.tk-done, .task-item.tk-done { color: var(--c-danger); }
+.grid-cell.tk-mark, .task-item.tk-mark { color: var(--c-ok); }
+.grid-cell.tk-cancel, .task-item.tk-cancel { color: var(--c-sub); text-decoration: line-through; }
+.grid-cell.tk-urgent, .task-item.tk-urgent { font-weight: 700; }
+.task-item { padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line); }
+.task-item:last-child { border-bottom: 0; }
