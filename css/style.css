@@ -4,20 +4,22 @@
  * 各画面・各部品に色や大きさを直接書かない
  */
 :root {
-  --c-bg: #f4f5f7;
+  /* 色: デザイン見本の 11「エメラルドグリーン」（2026-11-14 ユーザー決定） */
+  --c-bg: #edf6f2;
   --c-surface: #ffffff;
-  --c-text: #1c2430;
-  --c-sub: #5b6675;
-  --c-line: #d5dae1;
-  --c-primary: #1f4e79;
+  --c-text: #12302a;
+  --c-sub: #4d655e;
+  --c-line: #c6ddd5;
+  --c-primary: #0b7a5e;
   --c-primary-text: #ffffff;
-  --c-primary-weak: #e6eef6;
+  --c-primary-weak: #ddefe8;
+  --c-sat: #1f5a9e; /* 土曜の日付（青のまま。主の色が緑になったので分けた） */
   --c-danger: #b3261e;
   --c-danger-weak: #fbeceb;
   --c-warn: #7a5200;
   --c-warn-weak: #fff4d6;
-  --c-ok: #1b6b3a;
-  --c-ok-weak: #e7f4ec;
+  --c-ok: #3d6b16; /* 主の緑とまぎれないよう黄緑寄り（先送りの印・できました の知らせ） */
+  --c-ok-weak: #edf4e2;
   --c-overlay: rgba(20, 28, 40, 0.45);
 
   --fs-base: 16px;
@@ -249,7 +251,7 @@ textarea:focus-visible { outline: 3px solid var(--c-primary); outline-offset: 2p
 .day-item:disabled { cursor: default; opacity: 0.5; }
 .day-item.selected { border: 2px solid var(--c-primary); background: var(--c-primary-weak); }
 .day-item.sun .day-date { color: var(--c-danger); }
-.day-item.sat .day-date { color: var(--c-primary); }
+.day-item.sat .day-date { color: var(--c-sat); }
 .day-date { font-weight: 700; min-width: 7.5em; }
 .day-kind { font-size: var(--fs-small); color: var(--c-sub); min-width: 4em; }
 .day-state { margin-left: auto; font-size: var(--fs-small); }
@@ -305,7 +307,7 @@ table.report-grid .grid-corner, table.report-grid .grid-head { position: sticky;
 table.report-grid thead .grid-corner { z-index: 3; }
 table.report-grid .grid-group { text-align: center; }
 table.report-grid .grid-head.sun { color: var(--c-danger); }
-table.report-grid .grid-head.sat { color: var(--c-primary); }
+table.report-grid .grid-head.sat { color: var(--c-sat); }
 table.report-grid .grid-head.off::after { content: ' 休'; font-weight: 400; color: var(--c-sub); }
 .grid-cell { position: relative; cursor: cell; }
 .grid-cell.grid-col-time { min-width: 64px; }
