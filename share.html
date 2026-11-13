@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>日報を見せる・見せてもらう｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=6">
+<script src="js/boot.js?v=6" defer></script>
+<script src="js/config.js?v=6" defer></script>
+<script src="js/store.js?v=6" defer></script>
+<script src="js/ui.js?v=6" defer></script>
+<script src="js/api.js?v=6" defer></script>
+<script src="js/guard.js?v=6" defer></script>
+<script src="js/page_share.js?v=6" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>日報を見せる・見せてもらう</h1>
+  <div class="card">
+    <h2>自分の日報を見せる</h2>
+    <p class="sub">同じ現場に行った人などに、自分の日報を見せるコードを出します。コードは30分・1回だけ使えます（管理者の設定で変わります）。</p>
+    <div class="period-nav">
+      <button type="button" id="prev" class="btn">前の期間</button>
+      <h3 id="period-label" class="period-label"></h3>
+      <button type="button" id="next" class="btn">次の期間</button>
+    </div>
+    <p id="period-note" class="sub"></p>
+    <label class="check"><input type="checkbox" id="allow-copy" checked>相手が自分の日報に写すのを許す（時刻・作業場所・施工内容。備考は写りません）</label>
+    <button type="button" id="issue" class="btn primary block">コードを出す</button>
+    <div id="code-box" class="card" hidden>
+      <p class="sub">相手に伝えるコード</p>
+      <p id="code-text" class="share-code"></p>
+      <p id="code-note" class="sub"></p>
+    </div>
+    <h3>出したコード</h3>
+    <p id="mine-empty" class="sub" hidden>まだコードを出していません。</p>
+    <ul id="mine" class="list"></ul>
+  </div>
+  <div class="card">
+    <h2>見せてもらう</h2>
+    <form id="use-form" novalidate>
+      <label for="code-input">相手から聞いたコード（8文字）</label>
+      <input type="text" id="code-input" autocomplete="off" autocapitalize="characters" maxlength="20" inputmode="text">
+      <button type="submit" class="btn primary block">見る</button>
+    </form>
+    <h3>見せてもらっている日報</h3>
+    <p id="received-empty" class="sub" hidden>いま見せてもらっている日報はありません。</p>
+    <ul id="received" class="list"></ul>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

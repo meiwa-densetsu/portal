@@ -44,11 +44,13 @@
     return network();
   }
 
-  function send(action, args, requestId) {
+  function send(action, args, requestId, viewAs) {
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
     var t0 = Date.now();
-    var body = JSON.stringify({ action: action, apiVersion: MP.config.API_VERSION, token: MP.store.token(), requestId: requestId, args: args || {} });
+    var env = { action: action, apiVersion: MP.config.API_VERSION, token: MP.store.token(), requestId: requestId, args: args || {} };
+    if (viewAs) env.viewAs = viewAs.employeeId; // 社員の画面を見ているときだけ（計画 stage1-viewas-plan.md 1-1）
+    var body = JSON.stringify(env);
     return fetch(MP.config.EXEC_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: body,
       redirect: 'follow', credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', signal: ctrl.signal,
@@ -60,6 +62,25 @@
   }
 
   var never = function () { return new Promise(function () {}); };
+
+  /**
+   * 社員の画面を見ているときの答えの確かめ（計画 stage1-viewas-plan.md 1-6。今までの共通の扱い common より前）。
+   *   成功で me.viewAs が頼んだ社員 → そのまま／成功でそれ以外 → 渡さずに終える（ホームへ）
+   *   VIEW_ONLY・NETWORK・BUSY・INTERNAL → 続ける／それ以外の誤り → 先に見るのをやめてから common へ
+   */
+  function checkViewAs(res, sentAs) {
+    if (!sentAs) return res;
+    if (res.ok) {
+      if (res.me && res.me.viewAs && res.me.viewAs.employeeId === sentAs.employeeId) return res;
+      MP.store.clearViewAs();
+      MP.store.setFlash('社員の画面の表示を終えました');
+      MP.go('home.html');
+      return never();
+    }
+    if (['VIEW_ONLY', 'NETWORK', 'BUSY', 'INTERNAL'].indexOf(res.code) >= 0) return res;
+    MP.store.clearViewAs();
+    return res;
+  }
 
   function common(res) {
     if (res.ok) { MP.store.setReloaded(''); return res; }
@@ -99,13 +120,14 @@
    * 結果が分からない（NETWORK）・途中で止まった（INTERNAL）・混雑（BUSY）の後に同じ内容で送り直すときは、同じ requestId を使う。
    * 内容を変えたとき・結果がはっきりした後（成功・断られた）は、新しく作る
    */
-  function saver() {
+  function saver(opts) {
     var last = null; // { key, requestId }
+    var extra = opts || {};
     return function (action, args) {
       var key = action + '\n' + JSON.stringify(args);
       if (!last || last.key !== key) last = { key: key, requestId: newRequestId() };
       var mine = last;
-      return MP.api.call(action, args, { requestId: mine.requestId }).then(function (res) {
+      return MP.api.call(action, args, { requestId: mine.requestId, noViewAs: !!extra.noViewAs }).then(function (res) {
         var unknown = !res.ok && (res.code === 'NETWORK' || res.code === 'INTERNAL' || res.code === 'BUSY');
         if (!unknown && last === mine) last = null;
         if (!res.ok && res.code === 'NETWORK') res.message = '保存できたか分かりません。もう一度同じボタンを押してください';
@@ -120,7 +142,9 @@
     NETWORK_TEXT: NETWORK_TEXT,
     call: function (action, args, opts) {
       var o = opts || {};
-      var p = send(action, args, o.requestId || newRequestId());
+      // noViewAs … 社員の画面を見る開始・終了（本人の管理者として送る）
+      var sentAs = o.noViewAs ? null : MP.store.viewAs();
+      var p = send(action, args, o.requestId || newRequestId(), sentAs).then(function (res) { return checkViewAs(res, sentAs); });
       return o.raw ? p : p.then(common);
     },
   };

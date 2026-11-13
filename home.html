@@ -10,14 +10,14 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=5">
-<script src="js/boot.js?v=5" defer></script>
-<script src="js/config.js?v=5" defer></script>
-<script src="js/store.js?v=5" defer></script>
-<script src="js/ui.js?v=5" defer></script>
-<script src="js/api.js?v=5" defer></script>
-<script src="js/guard.js?v=5" defer></script>
-<script src="js/page_home.js?v=5" defer></script>
+<link rel="stylesheet" href="css/style.css?v=6">
+<script src="js/boot.js?v=6" defer></script>
+<script src="js/config.js?v=6" defer></script>
+<script src="js/store.js?v=6" defer></script>
+<script src="js/ui.js?v=6" defer></script>
+<script src="js/api.js?v=6" defer></script>
+<script src="js/guard.js?v=6" defer></script>
+<script src="js/page_home.js?v=6" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -28,6 +28,7 @@
   <div class="card">
     <h2>日報</h2>
     <div class="menu"><a class="btn primary" href="report.html">日報を入れる</a></div>
+    <div class="menu"><a class="btn" href="share.html">日報を見せる・見せてもらう</a></div>
     <p class="sub">休暇の申請は準備中です。</p>
   </div>
   <div class="card">
@@ -37,13 +38,19 @@
       <a class="btn" href="password.html">パスワードを変える</a>
     </div>
   </div>
+  <div id="manager-menu" class="card" hidden>
+    <h2>部長</h2>
+    <div class="menu"><a class="btn" href="manager.html">部署の日報の一覧</a></div>
+  </div>
   <div id="admin-menu" class="card" hidden>
     <h2>管理者</h2>
     <div class="menu cols">
       <a class="btn" href="report.html">社員の日報</a>
+      <a class="btn" href="manager.html">部署の日報の一覧</a>
       <a class="btn" href="admin_legal.html">法律上の時間外の目安</a>
       <a class="btn" href="admin_closing.html">日報の締め</a>
       <a class="btn" href="admin_changes.html">日報の修正履歴</a>
+      <a class="btn" href="admin_export.html">出勤簿の Excel</a>
       <a class="btn" href="admin_employees.html">社員の管理</a>
       <a class="btn" href="admin_departments.html">部署の管理</a>
       <a class="btn" href="admin_calendars.html">会社カレンダー</a>

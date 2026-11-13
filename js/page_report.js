@@ -1,7 +1,7 @@
 /*
  * 日報（1日ずつ入力）。手順6。計画 docs/plans/stage1-step6-plan.md 第4章
  *
- * 締めの期間の日の一覧 → 1日を開いて勤務（出社・開始・終了・退社・直行直帰・作業場所）と施工内容・備考を入れる。
+ * 締めの期間の日の一覧 → 1日を開いて勤務（出社・開始・終了・退社・直行直帰・作業場所・施工内容）と備考を入れる（施工内容は勤務ごと。手順10b）。
  * 日勤か夜勤かは社員が選ばず、共有の計算（CalcReport）が時刻から決める。入れるたびに、休憩・実働・所定との差をその場で出す。
  * 保存のときはサーバーがすべて計算し直す（画面の計算の結果は送らない）。管理者は社員を選んで、その人の日報を見る・直す
  */
@@ -22,6 +22,16 @@
     var me = null;
     var data = null;          // report.period の答え
     var target = null;        // 見ている社員（null = 自分）
+    var busy = 0;
+
+    /** ui.run と同じ。ui.run が止めるのはボタンだけなので、社員の選択も止める（読み込みの途中に選び直すと、出ている日報と保存先の社員が食い違うため） */
+    function run(fn) {
+      var sel = ui.$('emp-select');
+      busy++;
+      sel.disabled = true;
+      var end = function () { if (--busy === 0) sel.disabled = false; };
+      return ui.run(fn).then(function (v) { end(); return v; }, function (e) { end(); throw e; });
+    }
     var current = null;       // 開いている日（days の1つ）
     var entries = [];         // 入力中の勤務 [{ arrive, start, end, leave, direct, place }]
     var dirty = false;
@@ -29,8 +39,8 @@
     function remember(v) { try { window.localStorage.setItem(VIEW_KEY, v); } catch (e) { /* 覚えられなくても動く */ } }
     function fmt(min) { return min === null || min === undefined || min === '' ? '—' : CW.formatHm(min); }
     function dateLabel(d) { return Number(d.date.slice(5, 7)) + '月' + Number(d.date.slice(8, 10)) + '日（' + DOW[d.dow] + '）'; }
-    function emptyEntry() { return { arrive: '', start: '', end: '', leave: '', direct: '', place: '' }; }
-    function input() { return { entries: entries, content: ui.$('content').value, note: ui.$('note').value }; }
+    function emptyEntry() { return { arrive: '', start: '', end: '', leave: '', direct: '', place: '', content: '' }; }
+    function input() { return { entries: entries, note: ui.$('note').value }; }
 
     // ------------------------------------------------------------------ 読み込み
 
@@ -76,7 +86,8 @@
 
     function renderList() {
       renderClosed();
-      ui.$('title').textContent = data.employee.employeeId === (me && me.employeeId) ? '日報' : data.employee.name + 'さんの日報';
+      // 部長が部署の人を見るときは「見るだけ」（手順9 1-3。サーバーの viewOnly）
+      ui.$('title').textContent = data.employee.employeeId === (me && me.employeeId) ? '日報' : data.employee.name + 'さんの日報' + (data.viewOnly ? '（見るだけ）' : '');
       ui.$('period-label').textContent = data.period.label;
       ui.$('next').disabled = !data.nextDate;
       var t = data.totals;
@@ -85,11 +96,12 @@
         .forEach(function (kv) { dl.appendChild(ui.el('dt', { text: kv[0] })); dl.appendChild(ui.el('dd', { text: kv[1] })); });
       var ul = ui.clear(ui.$('days'));
       data.days.forEach(function (d) {
-        var kind = d.companyScheduled === null ? '所定不明' : d.companyType === 'H' ? '休み' : '出勤';
-        var state = d.state === 'work' ? '実働 ' + fmt(d.row['実働']) : d.state === 'workless' ? '勤務なし' : (d.date > data.today ? '' : '未入力');
+        var out = d.state === 'out'; // 部長の範囲外の日（中身は返らない。開けない）
+        var kind = out ? '範囲外' : d.companyScheduled === null ? '所定不明' : d.companyType === 'H' ? '休み' : '出勤';
+        var state = out ? '' : d.state === 'work' ? '実働 ' + fmt(d.row['実働']) : d.state === 'workless' ? '勤務なし' : (d.date > data.today ? '' : '未入力');
         var cls = 'day-item' + (d.dow === 0 ? ' sun' : d.dow === 6 ? ' sat' : '') + (current && current.date === d.date ? ' selected' : '');
         var btn = ui.el('button', {
-          type: 'button', class: cls, disabled: d.date > data.today,
+          type: 'button', class: cls, disabled: d.date > data.today || out,
           'aria-label': dateLabel(d) + ' ' + kind + ' ' + state,
           on: { click: function () { openDay(d); } },
         }, [
@@ -115,7 +127,6 @@
         current = d;
         var back = CR.fromSlots(d.row || {});
         entries = back.entries.length ? back.entries : [emptyEntry()];
-        ui.$('content').value = back.content;
         ui.$('note').value = back.note;
         dirty = false;
         renderForm();
@@ -136,10 +147,10 @@
       ui.$('form-note').hidden = !note;
       ui.$('form-note').textContent = note;
       var editable = data.editable && d.canCalc;
-      ui.$('save').disabled = !editable;
+      ui.$('save').disabled = !editable || MP.guard.viewing(); // 社員の画面を見ている間は保存しない（計画 stage1-viewas-plan.md 1-6）
       var own = !!data.patterns;
       ui.$('use-pattern').hidden = !own;
-      ui.$('make-pattern').hidden = !own;
+      ui.$('make-pattern').hidden = !own || MP.guard.viewing();
       renderEntries();
       update();
       lockForm();
@@ -184,6 +195,7 @@
           FIELDS.forEach(function (f) { entries[i][f] = readTime(id + '-' + f); });
           entries[i].direct = ui.$(id + '-direct').value;
           entries[i].place = ui.$(id + '-place').value;
+          entries[i].content = ui.$(id + '-content').value;
           dirty = true;
           update();
         };
@@ -199,8 +211,12 @@
             ui.el('div', { class: 'field' }, [ui.el('label', { for: id + '-place', text: '作業場所' }),
               ui.el('input', { type: 'text', id: id + '-place', value: e.place, autocomplete: 'off', on: { input: onChange } })]),
           ]),
+          // 施工内容は勤務ごと（手順10b 2-5）。時刻を入れない日（有給など）は、勤務 1 の施工内容だけを書く
+          ui.el('div', { class: 'field' }, [ui.el('label', { for: id + '-content', text: '施工内容' }),
+            ui.el('input', { type: 'text', id: id + '-content', value: e.content || '', autocomplete: 'off', on: { input: onChange } }),
+            ui.el('p', { class: 'hint', id: id + '-content-count' })]),
           ui.el('p', { class: 'field-error', id: id + '-error', role: 'alert', hidden: true }),
-          entries.length > 1 || e.arrive ? ui.el('button', { type: 'button', class: 'btn danger', text: 'この勤務を消す', on: { click: function () {
+          entries.length > 1 || e.arrive || e.content ? ui.el('button', { type: 'button', class: 'btn danger', text: 'この勤務を消す', on: { click: function () {
             entries.splice(i, 1);
             if (!entries.length) entries.push(emptyEntry());
             dirty = true;
@@ -220,7 +236,8 @@
       var editable = data.editable && current.canCalc;
       Array.prototype.forEach.call(ui.$('form-pane').querySelectorAll('input, select, textarea, button'), function (el) {
         if (el.id === 'close-form') return;
-        el.disabled = !editable; // 直せる日を開き直したら戻す
+        // 直せる日を開き直したら戻す。ただし社員の画面を見ている間は、保存は押せないまま（計画 stage1-viewas-plan.md 1-6）
+        el.disabled = !editable || (el.id === 'save' && MP.guard.viewing());
       });
     }
 
@@ -237,6 +254,7 @@
       if (i < 0) return null;
       i += offset;
       if (i >= 0 && i < data.days.length) return data.days[i].row;
+      if (!data.neighbors) return null; // 部長が見るだけのときは、隣の日は返らない
       var n = offset < 0 ? data.neighbors.before : data.neighbors.after;
       return n.input;
     }
@@ -244,13 +262,15 @@
     /** 入力のたびに、その場で確かめて計算する（サーバーと同じ CalcReport） */
     function update() {
       var R = data.rules;
-      counter('content', R.REPORT.CONTENT_MAX);
       counter('note', R.REPORT.NOTE_MAX);
       entries.forEach(function (e, i) {
         var id = 'e' + i;
+        counter(id + '-content', R.REPORT.CONTENT_MAX);
         var c = CR.classifyShift(e, CW, R);
         var filled = e.arrive || e.start || e.end || e.leave;
-        ui.$(id + '-kind').textContent = c.kind === 'night' ? '夜勤として計算します（休憩' + minutesText(R.NIGHT_BREAK) + '）' : c.kind === 'day' ? '日勤として計算します' : '';
+        var onlyContent = !filled && !e.direct && !e.place && !!(e.content || '').trim();
+        ui.$(id + '-kind').textContent = c.kind === 'night' ? '夜勤として計算します（休憩' + minutesText(R.NIGHT_BREAK) + '）' : c.kind === 'day' ? '日勤として計算します'
+          : onlyContent ? '時刻の無い日（有給など）の施工内容として保存します' : '';
         var nx = ui.$(id + '-next');
         var cross = c.kind === 'night' && CW.parseHm(e.leave) !== null && CW.parseHm(e.leave) < CW.parseHm(e.arrive);
         nx.hidden = !cross;
@@ -261,11 +281,17 @@
         if (filled && !c.kind && c.errors.length) showEntryError(i, c.errors[0]);
       });
       var res = ui.clear(ui.$('result'));
-      var slots = CR.toSlots(CR.normalizeDay(input(), R), CW, R);
+      var norm = CR.normalizeDay(input(), R);
+      var slots = CR.toSlots(norm, CW, R);
+      // 誤りの勤務の番号は、空の勤務を捨てた後の番号。画面の勤務の番号に直してから出す（Codex 手順10b 実装1回目 low）
+      var uiIndex = [];
+      entries.forEach(function (e, i) { if (!CR.normalizeDay({ entries: [e], note: '' }, R).entries.length) return; uiIndex.push(i); });
+      var toUi = function (k) { return uiIndex[k] === undefined ? k : uiIndex[k]; };
       if (!slots.ok) {
         slots.errors.forEach(function (e) {
           if (e.entry === null) { var p = ui.$(e.field + '-count'); p.textContent = MESSAGES[e.code]; p.className = 'field-error'; }
-          else if (e.field === 'place' || e.field === 'direct' || !e.field) showEntryError(e.entry, e);
+          else if (e.field === 'content') { var q = ui.$('e' + toUi(e.entry) + '-content-count'); if (q) { q.textContent = MESSAGES[e.code]; q.className = 'field-error'; } }
+          else if (e.field === 'place' || e.field === 'direct' || !e.field) showEntryError(toUi(e.entry), e);
         });
         res.appendChild(ui.el('p', { class: 'sub', text: '入力を直すと、実働などを計算します' }));
         return null;
@@ -277,7 +303,7 @@
       if (ov.errors.length) {
         var o = ov.errors[0];
         var idx = slots.slotOf[o.slot];
-        showEntryError(idx === undefined ? 0 : idx, { field: o.field, code: 'OVERLAP', with: o.with });
+        showEntryError(idx === undefined ? 0 : toUi(idx), { field: o.field, code: 'OVERLAP', with: o.with });
         return null;
       }
       var hasNight = !!calc.slots.night;
@@ -337,9 +363,9 @@
         return;
       }
       var args = { employeeId: target, date: current.date, baseVersion: current.recordVersion, entries: entries.filter(function (e) {
-        return e.arrive || e.start || e.end || e.leave || e.direct || e.place;
-      }), content: ui.$('content').value, note: ui.$('note').value };
-      ui.run(function () {
+        return e.arrive || e.start || e.end || e.leave || e.direct || e.place || e.content;
+      }), note: ui.$('note').value };
+      run(function () {
         return save('report.save', args).then(function (res) {
           if (res.ok) {
             applyResult(res.data);
@@ -350,12 +376,11 @@
             return;
           }
           if (res.code === 'CONFLICT') {
-            var keep = { entries: entries.slice(), content: ui.$('content').value, note: ui.$('note').value, date: current.date };
+            var keep = { entries: entries.slice(), note: ui.$('note').value, date: current.date };
             return ui.notice('他の画面で更新されています', '最新の内容を読み込みます。あなたが入れた内容は画面に残すので、見比べてから保存し直してください。').then(function () {
               return load(current.date).then(function () {
                 current = data.days.filter(function (d) { return d.date === keep.date; })[0];
                 entries = keep.entries;
-                ui.$('content').value = keep.content;
                 ui.$('note').value = keep.note;
                 dirty = true;
                 renderForm();
@@ -371,7 +396,6 @@
 
     function fill(back) {
       entries = back.entries.length ? back.entries.map(function (e) { return Object.assign(emptyEntry(), e); }) : [emptyEntry()];
-      ui.$('content').value = back.content || '';
       if (back.note !== undefined) ui.$('note').value = back.note; // 前日と同じ: 備考も写す（定型パターンには備考が無いので変えない）
       dirty = true;
       renderEntries();
@@ -390,20 +414,20 @@
       var body = ui.el('ul', { class: 'list' });
       var dlgPromise;
       list.forEach(function (p) {
-        var desc = p.entries.map(function (e) { return e.arrive + '〜' + e.leave + (e.place ? ' ' + e.place : ''); }).join(' / ') + (p.content ? '・' + p.content : '');
+        var desc = p.entries.map(function (e) { return (e.arrive ? e.arrive + '〜' + e.leave : '') + (e.place ? ' ' + e.place : '') + (e.content ? '・' + e.content : ''); }).join(' / ');
         body.appendChild(ui.el('li', {}, [
           ui.el('div', { class: 'item-title', text: p.name }), ui.el('div', { class: 'sub', text: desc }),
           ui.el('div', { class: 'item-actions' }, [
             ui.el('button', { type: 'button', class: 'btn primary', text: '使う', on: { click: function (ev) {
-              fill({ entries: p.entries, content: p.content });
+              fill({ entries: p.entries });
               ev.target.closest('dialog').close();
             } } }),
-            ui.el('button', { type: 'button', class: 'btn danger', text: '消す', on: { click: function (ev) {
+            MP.guard.viewing() ? null : ui.el('button', { type: 'button', class: 'btn danger', text: '消す', on: { click: function (ev) {
               var dlg = ev.target.closest('dialog');
               dlg.close();
               ui.confirm('定型パターンを消す', '「' + p.name + '」を消しますか？', '消す', 'danger').then(function (ok) {
                 if (!ok) return;
-                ui.run(function () {
+                run(function () {
                   return MP.api.call('report.pattern.delete', { patternId: p.patternId }).then(function (res) {
                     if (res.ok) { data.patterns = res.data.patterns; ui.pageMessage('定型パターンを消しました', 'ok'); }
                     else ui.pageMessage(res.message, 'error');
@@ -422,15 +446,15 @@
       var slots = CR.toSlots(CR.normalizeDay(input(), data.rules), CW, data.rules);
       if (!slots.ok) { ui.notice('定型パターンにする', '入力を直してから登録してください'); return; }
       var back = CR.fromSlots(slots.row);
-      if (!back.entries.length && !back.content) { ui.notice('定型パターンにする', '登録する中身がありません'); return; }
+      if (!back.entries.length) { ui.notice('定型パターンにする', '登録する中身がありません'); return; }
       var name = ui.el('input', { type: 'text', id: 'pattern-name', autocomplete: 'off', maxlength: String(data.rules.REPORT.PATTERN_NAME_MAX) });
       var body = ui.el('div', { class: 'field' }, [ui.el('label', { for: 'pattern-name', text: '名前（例: 事務所のふつうの日）' }), name]);
       var rid = MP.api.newRequestId();
       ui.dialog({ title: '定型パターンにする', body: body, dismiss: false, buttons: [{ label: '登録する', value: true, kind: 'primary' }, { label: 'やめる', value: false }] })
         .then(function (ok) {
           if (!ok) return;
-          ui.run(function () {
-            return MP.api.call('report.pattern.save', { name: name.value, entries: back.entries, content: back.content }, { requestId: rid }).then(function (res) {
+          run(function () {
+            return MP.api.call('report.pattern.save', { name: name.value, entries: back.entries }, { requestId: rid }).then(function (res) {
               if (res.ok) { data.patterns = res.data.patterns; ui.pageMessage('定型パターン「' + name.value.trim() + '」を登録しました', 'ok'); }
               else ui.pageMessage(res.message, 'error');
             });
@@ -450,7 +474,7 @@
       current = null;
       ui.$('form-pane').hidden = true;
       var list = data.days.filter(function (d) { return d.needsRecalc; });
-      ui.run(function () {
+      run(function () {
         var n = 0;
         var step = function (i) {
           if (i >= list.length) return Promise.resolve();
@@ -468,19 +492,18 @@
 
     // ------------------------------------------------------------------ つなぐ
 
-    ui.$('prev').addEventListener('click', function () { confirmLeave().then(function (ok) { if (ok) { dirty = false; current = null; ui.$('form-pane').hidden = true; ui.run(function () { return load(data.prevDate); }); } }); });
-    ui.$('next').addEventListener('click', function () { confirmLeave().then(function (ok) { if (ok && data.nextDate) { dirty = false; current = null; ui.$('form-pane').hidden = true; ui.run(function () { return load(data.nextDate); }); } }); });
+    ui.$('prev').addEventListener('click', function () { confirmLeave().then(function (ok) { if (ok) { dirty = false; current = null; ui.$('form-pane').hidden = true; run(function () { return load(data.prevDate); }); } }); });
+    ui.$('next').addEventListener('click', function () { confirmLeave().then(function (ok) { if (ok && data.nextDate) { dirty = false; current = null; ui.$('form-pane').hidden = true; run(function () { return load(data.nextDate); }); } }); });
     ui.$('emp-select').addEventListener('change', function (ev) {
       var v = ev.target.value;
       confirmLeave().then(function (ok) {
         if (!ok) { ev.target.value = data.employee.employeeId; return; }
         target = v === me.employeeId ? null : v;
         dirty = false; current = null; ui.$('form-pane').hidden = true;
-        ui.run(function () { return load(data.days[0].date); });
+        run(function () { return load(data.days[0].date); });
       });
     });
     ui.$('add-entry').addEventListener('click', function () { entries.push(emptyEntry()); renderEntries(); update(); });
-    ui.$('content').addEventListener('input', function () { dirty = true; update(); });
     ui.$('note').addEventListener('input', function () { dirty = true; update(); });
     ui.$('save').addEventListener('click', doSave);
     ui.$('copy-prev').addEventListener('click', copyPrev);

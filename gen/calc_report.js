@@ -9,7 +9,8 @@
  * 関数を呼ぶときに引数 CW で受け取る。数字はすべて引数 rules（サーバーの RULES.WORK）から読む。
  *
  * つながり:
- *   normalizeDay(画面の入力, rules) → { entries, content, note }（そろえた入力）
+ *   normalizeDay(画面の入力, rules) → { entries, note }（そろえた入力。施工内容は勤務ごと）
+ *   effective(日報の行) → 施工内容を読み替えた行の写し（古い列「施工内容」との関係。手順10b 2-2）
  *   toSlots(そろえた入力, CW, rules) → 日報の行の入力の列（昼の欄・夜の欄に振り分け）
  *   calcDay(行, { date, breakType }, CW, rules) → 計算の結果（計算の列）
  *   checkOverlap(前の日の行, その日の行, 次の日の行, CW, rules) → 時間の重なり
@@ -26,13 +27,55 @@ var CalcReport = (function () {
   var SLOT_PREFIX = { day: '昼_', night: '夜_' };
   var DIRECT_VALUES = ['', '直行', '直帰', '両方'];
 
-  /** 日報の行の入力の列（計画 2-5。照合・修正履歴の JSON・空にする列はこの一覧で決める） */
-  var INPUT_COLS = ['昼_出社', '昼_開始', '昼_終了', '昼_退社', '昼_直行直帰', '昼_作業場所',
-    '夜_出社', '夜_開始', '夜_終了', '夜_退社', '夜_直行直帰', '夜_作業場所', '施工内容', '備考'];
+  /**
+   * 日報の行の入力の列（計画 2-5。照合・修正履歴の JSON・空にする列はこの一覧で決める）。
+   * 施工内容は勤務ごと（手順10b。計画 docs/plans/stage1-step10b-plan.md 2-1）。シートの見出しの並びはこの一覧では決めない（server の rep_headers_）
+   */
+  var INPUT_COLS = ['昼_出社', '昼_開始', '昼_終了', '昼_退社', '昼_直行直帰', '昼_作業場所', '昼_施工内容',
+    '夜_出社', '夜_開始', '夜_終了', '夜_退社', '夜_直行直帰', '夜_作業場所', '夜_施工内容', '備考'];
   /** 日報の行の計算の列 */
   var CALC_COLS = ['休憩方式', '昼_休憩', '昼_実働', '夜_休憩', '夜_実働', '実働', '深夜', '法定休日',
     '暦日の内訳', '警告', '計算の版', '計算の決まり'];
-  var SLOT_COLS = { arrive: '出社', start: '開始', end: '終了', leave: '退社', direct: '直行直帰', place: '作業場所' };
+  var SLOT_COLS = { arrive: '出社', start: '開始', end: '終了', leave: '退社', direct: '直行直帰', place: '作業場所', content: '施工内容' };
+  /** 1日に1つだった頃の施工内容の列（古い版の画面・戻したときのため、昼と夜をつないだ値を書き続ける。計画 2-2） */
+  var LEGACY_CONTENT = '施工内容';
+  var CONTENT_SEP = '／';
+
+  function str_(v) { return v === null || v === undefined ? '' : String(v); }
+
+  /** 古い列に書く値: 昼と夜の施工内容を「／」でつなぐ（片方だけならそれだけ） */
+  function joinContent(day, night) {
+    return [str_(day), str_(night)].filter(function (s) { return s !== ''; }).join(CONTENT_SEP);
+  }
+
+  /**
+   * 施工内容を読み替えた行の写し（計画 2-2。日報の行を使う所はすべてこれを通す。行そのものは書き換えない）。
+   * 古い列 === join(昼, 夜) なら新しい2列が正しい。違えば古い列が正しく、日勤があれば昼・夜勤だけなら夜・時刻が無ければ昼に読み替える
+   */
+  function effective(row) {
+    if (!row) return row;
+    var dayC = str_(row['昼_施工内容']), nightC = str_(row['夜_施工内容']);
+    var legacy = str_(row[LEGACY_CONTENT]);
+    var out = {};
+    for (var k in row) if (Object.prototype.hasOwnProperty.call(row, k)) out[k] = row[k];
+    // 古い列を持たない行（読み替え済み・画面の入力・toSlots の行）は、新しい2列をそのまま使う（何度通しても同じ。Codex 計画2回目 high）
+    // 古い列を持つ行（シートの行）だけ新旧を比べる。古い列が「あって空」なら、古い版で消したものとして両方空
+    if (!Object.prototype.hasOwnProperty.call(row, LEGACY_CONTENT) || legacy === joinContent(dayC, nightC)) {
+      out['昼_施工内容'] = dayC;
+      out['夜_施工内容'] = nightC;
+      return out;
+    }
+    var toNight = !timesPresent_(row, 'day') && timesPresent_(row, 'night');
+    out['昼_施工内容'] = toNight ? '' : legacy;
+    out['夜_施工内容'] = toNight ? legacy : '';
+    return out;
+  }
+
+  /** その勤務の4つの時刻のどれかが入っているか（行を直接見る。effective の中でも使う） */
+  function timesPresent_(row, slot) {
+    var p = SLOT_PREFIX[slot];
+    return str_(row[p + '出社']) !== '' || str_(row[p + '開始']) !== '' || str_(row[p + '終了']) !== '' || str_(row[p + '退社']) !== '';
+  }
 
   function calcError_(code, message) {
     var e = new Error(message);
@@ -81,12 +124,17 @@ var CalcReport = (function () {
   }
 
   function isEmptyEntry_(e) {
-    return e.arrive === '' && e.start === '' && e.end === '' && e.leave === '' && e.direct === '' && e.place === '';
+    return e.arrive === '' && e.start === '' && e.end === '' && e.leave === '' && e.direct === '' && e.place === '' && str_(e.content) === '';
+  }
+
+  /** 内容だけの勤務（4つの時刻・直行直帰・作業場所が空で、施工内容だけがある。計画 2-1） */
+  function isContentOnly_(e) {
+    return e.arrive === '' && e.start === '' && e.end === '' && e.leave === '' && e.direct === '' && e.place === '' && str_(e.content) !== '';
   }
 
   /**
-   * 画面の入力 { entries: [{ arrive, start, end, leave, direct, place }], content, note } をそろえる。
-   * 全部が空の勤務は捨てる（「勤務なし」）。返す値: { entries, content, note }（入力は書き換えない）
+   * 画面の入力 { entries: [{ arrive, start, end, leave, direct, place, content }], note } をそろえる。
+   * 全部が空の勤務は捨てる（「勤務なし」）。返す値: { entries, note }（入力は書き換えない）
    */
   function normalizeDay(input, rules) {
     var src = input || {};
@@ -96,11 +144,11 @@ var CalcReport = (function () {
       var e = list[i] || {};
       var n = {
         arrive: normTime_(e.arrive), start: normTime_(e.start), end: normTime_(e.end), leave: normTime_(e.leave),
-        direct: normText_(e.direct), place: normText_(e.place),
+        direct: normText_(e.direct), place: normText_(e.place), content: normText_(e.content),
       };
       if (!isEmptyEntry_(n)) entries.push(n);
     }
-    return { entries: entries, content: normText_(src.content), note: normText_(src.note) };
+    return { entries: entries, note: normText_(src.note) };
   }
 
   /**
@@ -139,14 +187,15 @@ var CalcReport = (function () {
   function textErrors_(n, rules) {
     var R = rules.REPORT;
     var errors = [];
-    if (/[\r\n]/.test(n.content)) errors.push({ entry: null, field: 'content', code: 'NEWLINE' });
-    else if (textLength(n.content) > R.CONTENT_MAX) errors.push({ entry: null, field: 'content', code: 'TOO_LONG_TEXT' });
     if (/[\r\n]/.test(n.note)) errors.push({ entry: null, field: 'note', code: 'NEWLINE' });
     else if (textLength(n.note) > R.NOTE_MAX) errors.push({ entry: null, field: 'note', code: 'TOO_LONG_TEXT' });
     for (var i = 0; i < n.entries.length; i++) {
       var e = n.entries[i];
       if (/[\r\n]/.test(e.place)) errors.push({ entry: i, field: 'place', code: 'NEWLINE' });
       else if (textLength(e.place) > R.PLACE_MAX) errors.push({ entry: i, field: 'place', code: 'TOO_LONG_TEXT' });
+      var c = str_(e.content);
+      if (/[\r\n]/.test(c)) errors.push({ entry: i, field: 'content', code: 'NEWLINE' });
+      else if (textLength(c) > R.CONTENT_MAX) errors.push({ entry: i, field: 'content', code: 'TOO_LONG_TEXT' });
       if (DIRECT_VALUES.indexOf(e.direct) < 0) errors.push({ entry: i, field: 'direct', code: 'FORMAT' });
     }
     return errors;
@@ -164,7 +213,7 @@ var CalcReport = (function () {
    */
   function toSlots(norm, CW, rules) {
     checkRules(rules);
-    var n = norm || { entries: [], content: '', note: '' };
+    var n = norm || { entries: [], note: '' };
     var errors = [];
     if (n.entries.length > rules.REPORT.ENTRY_MAX) {
       errors.push({ entry: rules.REPORT.ENTRY_MAX, field: null, code: 'TOO_MANY' });
@@ -172,7 +221,15 @@ var CalcReport = (function () {
     }
     errors = errors.concat(textErrors_(n, rules));
     var slotOf = {};
+    // 内容だけの勤務（計画 2-1 の④⑥）: ほかに勤務が無い日に1つだけ。昼の欄に入れる
+    var contentOnly = -1;
+    for (var q = 0; q < n.entries.length; q++) {
+      if (!isContentOnly_(n.entries[q])) continue;
+      if (n.entries.length > 1) errors.push({ entry: q, field: 'content', code: 'CONTENT_ONLY' });
+      else contentOnly = q;
+    }
     for (var i = 0; i < n.entries.length; i++) {
+      if (isContentOnly_(n.entries[i])) continue;
       var c = classifyShift(n.entries[i], CW, rules);
       if (!c.kind) {
         for (var j = 0; j < c.errors.length; j++) errors.push({ entry: i, field: c.errors[j].field, code: c.errors[j].code });
@@ -189,9 +246,12 @@ var CalcReport = (function () {
     ['day', 'night'].forEach(function (slot) {
       if (slotOf[slot] === undefined) return;
       var e = n.entries[slotOf[slot]];
-      for (var key in SLOT_COLS) row[SLOT_PREFIX[slot] + SLOT_COLS[key]] = e[key];
+      for (var key in SLOT_COLS) row[SLOT_PREFIX[slot] + SLOT_COLS[key]] = str_(e[key]);
     });
-    row['施工内容'] = n.content;
+    if (contentOnly >= 0) {
+      slotOf.day = contentOnly;
+      row['昼_施工内容'] = n.entries[contentOnly].content;
+    }
     row['備考'] = n.note;
     return { ok: true, errors: [], row: row, slotOf: slotOf };
   }
@@ -210,20 +270,24 @@ var CalcReport = (function () {
     return e.arrive !== '' || e.start !== '' || e.end !== '' || e.leave !== '';
   }
 
-  /** 日報の行から画面の入力に戻す（日勤 → 夜勤の順）。返す値: { entries, content, note } */
+  /**
+   * 日報の行から画面の入力に戻す（日勤 → 夜勤の順。施工内容は effective で読み替えてから）。返す値: { entries, note }。
+   * 時刻の無い行で昼の施工内容だけがあれば、内容だけの勤務1つになる
+   */
   function fromSlots(row) {
-    var r = row || {};
+    var r = effective(row || {});
     var entries = [];
     ['day', 'night'].forEach(function (slot) {
       var e = slotEntry_(r, slot);
       if (!isEmptyEntry_(e)) entries.push(e);
     });
-    return { entries: entries, content: r['施工内容'] ? String(r['施工内容']) : '', note: r['備考'] ? String(r['備考']) : '' };
+    return { entries: entries, note: r['備考'] ? String(r['備考']) : '' };
   }
 
   /** 日の状態: 'missing'（空）/ 'workless'（時刻なし・文字あり）/ 'work'（勤務が1つ以上） */
-  function dayState(row) {
-    if (!row) return 'missing';
+  function dayState(row0) {
+    if (!row0) return 'missing';
+    var row = effective(row0); // 古い列だけの「有給」も workless（計画 2-2）
     if (slotPresent_(row, 'day') || slotPresent_(row, 'night')) return 'work';
     for (var i = 0; i < INPUT_COLS.length; i++) {
       var v = row[INPUT_COLS[i]];
@@ -389,6 +453,9 @@ var CalcReport = (function () {
     VERSION: VERSION,
     INPUT_COLS: INPUT_COLS,
     CALC_COLS: CALC_COLS,
+    LEGACY_CONTENT: LEGACY_CONTENT,
+    joinContent: joinContent,
+    effective: effective,
     DIRECT_VALUES: DIRECT_VALUES,
     TIME_LABEL: TIME_LABEL,
     checkRules: checkRules,
@@ -398,6 +465,8 @@ var CalcReport = (function () {
     toSlots: toSlots,
     fromSlots: fromSlots,
     dayState: dayState,
+    /** その勤務（'day'・'night'）の4つの時刻のどれかが入っているか（出勤簿の出勤日数。手順10 2-3） */
+    hasSlot: function (row, slot) { return !!row && slotPresent_(row, slot); },
     calcDay: calcDay,
     checkOverlap: checkOverlap,
     balance: balance,

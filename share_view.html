@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>見せてもらった日報｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=6">
+<script src="js/boot.js?v=6" defer></script>
+<script src="js/config.js?v=6" defer></script>
+<script src="js/store.js?v=6" defer></script>
+<script src="js/ui.js?v=6" defer></script>
+<script src="js/api.js?v=6" defer></script>
+<script src="js/guard.js?v=6" defer></script>
+<script src="gen/calc_worktime.js?v=6" defer></script>
+<script src="js/page_share_view.js?v=6" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1 id="title">見せてもらった日報</h1>
+  <p id="range" class="sub"></p>
+  <div id="copy-bar" class="card" hidden>
+    <h2>自分の日報に写す</h2>
+    <p class="sub">写す日に印を付けるか、初めと終わりを選んで「この範囲に印を付ける」を押してから「写す」を押してください。写すのは時刻・作業場所・施工内容で、備考は写りません。自分の日報に入力がある日は写しません。</p>
+    <div class="row-fields">
+      <label for="copy-from">初め</label><select id="copy-from"></select>
+      <label for="copy-to">終わり</label><select id="copy-to"></select>
+    </div>
+    <button type="button" id="pick-range" class="btn block">この範囲に印を付ける</button>
+    <button type="button" id="copy" class="btn primary block">写す</button>
+  </div>
+  <div id="results-box" class="card" hidden>
+    <h2>写した結果</h2>
+    <ul id="results" class="list"></ul>
+    <a class="btn block" href="report.html">自分の日報を開く</a>
+  </div>
+  <ul id="days" class="list card share-days"></ul>
+  <button type="button" id="reload" class="btn block">読み込み直す</button>
+  <a class="btn block" href="share.html">戻る</a>
+</div>
+</main>
+</body>
+</html>

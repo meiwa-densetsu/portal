@@ -39,8 +39,18 @@
       }
 
       function render(s) {
-        $('count').textContent = '登録中の端末: ' + s.activeDevices + ' 台（上限 ' + s.deviceLimit + ' 台）';
+        $('count').textContent = '登録中の端末: 全体 ' + s.activeDevices + ' / ' + s.deviceLimit + ' 台';
         $('near-limit').hidden = !s.nearLimit;
+        // 人ごとの台数（登録した人で数える。管理者は一人の上限に数えない。計画 stage1-viewas-plan.md 2-1）
+        var per = typeof s.perPersonLimit === 'number' ? s.perPersonLimit : null;
+        $('per-person').textContent = per === null ? '' : '一人 ' + per + ' 台まで（管理者は数えません。上限の人が新しく足すには、使っていない端末を取り消してください）';
+        var people = ui.clear($('people-list'));
+        (s.people || []).forEach(function (p) {
+          people.appendChild(el('li', {}, [
+            el('span', { text: p.name + ' ' + p.count + ' 台' + (p.admin ? '（管理者）' : '') }),
+            p.full ? el('span', { class: 'tag warn', text: '上限' }) : null,
+          ]));
+        });
 
         var list = ui.clear($('device-list'));
         s.devices.forEach(function (d) {

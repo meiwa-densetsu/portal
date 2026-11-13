@@ -10,6 +10,23 @@
       var histBase = null;  // 直している履歴の行（新しい行なら null）
       var VIEWS = ['list-view', 'detail-view', 'hist-view', 'add-view'];
       var ROLE_MANAGER = '部長';
+      var viewSave = MP.api.saver({ noViewAs: true }); // 社員の画面を見る（開始の記録。押し直しは同じ requestId）
+
+      /** 社員の画面を見る（見るだけ。計画 stage1-viewas-plan.md 1-6）。本人・利用停止・管理者は出さない */
+      function canView(e, h) { return e.active && h && h.role !== MP.guard.ROLE_ADMIN && e.employeeId !== entered.me.employeeId; }
+      function viewAs(e) {
+        ui.confirm(e.name + 'さんの画面を見る', e.name + 'さんがログインしたときの画面を、見るだけで開きます。保存・申請はできません。見始めたことは記録に残ります。終わるときは、上の帯の「終わる」を押してください。', '見る', 'primary').then(function (ok) {
+          if (!ok) return;
+          ui.run(function () {
+            return viewSave('auth.admin.viewAsStart', { employeeId: e.employeeId }).then(function (res) {
+              if (!res.ok) { ui.pageMessage(res.message, 'error'); return; }
+              MP.store.setViewAs({ employeeId: res.data.employeeId, name: res.data.name });
+              MP.go('home.html');
+              return new Promise(function () {});
+            });
+          });
+        });
+      }
 
       function show(view) {
         VIEWS.forEach(function (v) { $(v).hidden = v !== view; });
@@ -202,15 +219,16 @@
         data.employees.forEach(function (e) {
           var h = effective(e), st = statusOf(e);
           var openBtn = function () { return el('button', { type: 'button', class: 'btn', text: '開く', on: { click: function () { openDetail(e.employeeId); } } }); };
+          var viewBtn = function () { return canView(e, h) ? el('button', { type: 'button', class: 'btn', text: '画面を見る', on: { click: function () { viewAs(e); } } }) : null; };
           cards.appendChild(el('li', {}, [
             el('div', { class: 'item-title' }, [e.name + ' ', el('span', { class: 'tag ' + st[1], text: st[0] })]),
             el('div', { class: 'sub', text: (h ? deptName(h.deptId) + '・' + h.role : '—') }),
-            el('div', { class: 'item-actions' }, [openBtn()]),
+            el('div', { class: 'item-actions' }, [openBtn(), viewBtn()]),
           ]));
           rows.appendChild(el('tr', {}, [
             el('td', { text: e.name }), el('td', { text: h ? deptName(h.deptId) : '—' }), el('td', { text: h ? h.role : '—' }),
             el('td', { text: h ? calName(h.calendarId) : '—' }),
-            el('td', {}, [el('span', { class: 'tag ' + st[1], text: st[0] })]), el('td', {}, [openBtn()]),
+            el('td', {}, [el('span', { class: 'tag ' + st[1], text: st[0] })]), el('td', { class: 'item-actions' }, [openBtn(), viewBtn()]),
           ]));
         });
         // 今日のカレンダーが未設定の、利用中の社員（手順6の日報で所定が出せないため）

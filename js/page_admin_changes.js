@@ -11,7 +11,18 @@
     var data = null, rules = null;
     var employeeId = null, periodId = null;
 
+    var busy = 0;
+
     function periodOf(date) { return CW.payPeriodOf(date, rules); }
+
+    /** ui.run と同じ。社員の選択とチェックも止める（読み込みの途中に選び直すと、選んだ社員と出ている履歴が食い違うため） */
+    function run(fn) {
+      var ctl = [ui.$('emp-select'), ui.$('show-all')];
+      busy++;
+      ctl.forEach(function (c) { c.disabled = true; });
+      var end = function () { if (--busy === 0) ctl.forEach(function (c) { c.disabled = false; }); };
+      return ui.run(fn).then(function (v) { end(); return v; }, function (e) { end(); throw e; });
+    }
 
     function load(first) {
       var args = { employeeId: employeeId, periodId: periodId, showAll: ui.$('show-all').checked };
@@ -47,13 +58,13 @@
       var base = days < 0 ? data.period.from : data.period.to;
       var t = new Date(Date.UTC(Number(base.slice(0, 4)), Number(base.slice(5, 7)) - 1, Number(base.slice(8, 10)) + days));
       periodId = periodOf(t.toISOString().slice(0, 10)).id;
-      ui.run(function () { return load(); });
+      run(function () { return load(); });
     }
 
     ui.$('prev').addEventListener('click', function () { shift(-1); });
     ui.$('next').addEventListener('click', function () { shift(1); });
-    ui.$('emp-select').addEventListener('change', function (ev) { employeeId = ev.target.value; ui.run(function () { return load(); }); });
-    ui.$('show-all').addEventListener('change', function () { ui.run(function () { return load(); }); });
+    ui.$('emp-select').addEventListener('change', function (ev) { employeeId = ev.target.value; run(function () { return load(); }); });
+    ui.$('show-all').addEventListener('change', function () { run(function () { return load(); }); });
 
     // 初めは自分（管理者）と今の期間。社員は画面で選ぶ。?employee= で開くこともできる
     return MP.guard.enter({ admin: true }).then(function (me) {

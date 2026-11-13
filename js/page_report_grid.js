@@ -14,9 +14,9 @@
     var GC = MP.gridCore;
     var T = MP.reportText;
     var DOW = ['日', '月', '火', '水', '木', '金', '土'];
-    var COLS = CR.INPUT_COLS;                     // 入力の14列（昼6・夜6・施工内容・備考）
+    var COLS = CR.INPUT_COLS;                     // 入力の15列（昼7・夜7・備考。施工内容は勤務ごと: 手順10b）
     var SLOT = { day: '昼_', night: '夜_' };
-    var KEYS = { arrive: '出社', start: '開始', end: '終了', leave: '退社', direct: '直行直帰', place: '作業場所' };
+    var KEYS = { arrive: '出社', start: '開始', end: '終了', leave: '退社', direct: '直行直帰', place: '作業場所', content: '施工内容' };
     var TIME_KEYS = ['arrive', 'start', 'end', 'leave'];
     var CALC = ['実働', '振替・不足', '状態'];
     var VIEW_KEY = 'mp_report_view';
@@ -43,16 +43,16 @@
     }
     function entryEmpty(e) { return Object.keys(KEYS).every(function (k) { return String(e[k]).trim() === ''; }); }
 
-    /** 送る形 { entries, content, note } と、勤務の番号 → 欄（day・night）の対応 */
+    /** 送る形 { entries, note } と、勤務の番号 → 欄（day・night）の対応 */
     function toSend(inp) {
       var entries = [], from = [];
       ['day', 'night'].forEach(function (s) { var e = groupEntry(inp, s); if (!entryEmpty(e)) { entries.push(e); from.push(s); } });
-      return { input: { entries: entries, content: inp['施工内容'], note: inp['備考'] }, from: from };
+      return { input: { entries: entries, note: inp['備考'] }, from: from };
     }
 
     function finalRow(i) {
-      if (i < 0) return data.neighbors.before.input;
-      if (i >= rows.length) return data.neighbors.after.input;
+      if (i < 0) return data.neighbors ? data.neighbors.before.input : null; // 部長が見るだけのときは隣の日は無い
+      if (i >= rows.length) return data.neighbors ? data.neighbors.after.input : null;
       var s = CR.toSlots(CR.normalizeDay(toSend(rows[i].cur).input, data.rules), CW, data.rules);
       return s.ok ? s.row : rows[i].base;
     }
@@ -67,14 +67,16 @@
       if (!slots.ok) {
         slots.errors.forEach(function (e) {
           var msg = T.MESSAGES[e.code] || '入力が正しくありません';
-          if (e.entry === null || e.entry === undefined) put(e.field === 'note' ? '備考' : '施工内容', msg);
+          if (e.entry === null || e.entry === undefined) put('備考', msg);
           else put(SLOT[send.from[Math.min(e.entry, send.from.length - 1)] || 'day'] + KEYS[e.field || 'arrive'], msg);
         });
         return out;
       }
       ['day', 'night'].forEach(function (k) {
         var idx = slots.slotOf[k];
-        if (idx !== undefined && send.from[idx] !== k) out.info = k === 'night' ? '夜勤として保存します（夜の欄に移ります）' : '日勤として保存します（昼の欄に移ります）';
+        if (idx === undefined || send.from[idx] === k) return;
+        var only = !slots.row['昼_出社'] && !slots.row['夜_出社']; // 時刻の無い施工内容（有給など）は昼の欄に入る（手順10b 2-1）
+        out.info = only ? '時刻の無い施工内容は、昼の欄に移ります' : k === 'night' ? '夜勤として保存します（夜の欄に移ります）' : '日勤として保存します（昼の欄に移ります）';
       });
       if (!x.day.canCalc) return out;
       var calc = CR.calcDay(slots.row, { date: x.day.date, breakType: x.day.breakType }, CW, R);
@@ -103,7 +105,6 @@
           columns.push(col);
         });
       });
-      columns.push({ key: '施工内容', label: '施工内容', kind: 'text' });
       columns.push({ key: '備考', label: '備考', kind: 'text' });
       CALC.forEach(function (k) { columns.push({ key: k, label: k, kind: 'calc' }); });
     }
@@ -189,7 +190,7 @@
       var dl = ui.clear(ui.$('totals'));
       [['実働の合計', fmt(work) || '0:00'], ['保存していない日', dirty + '日'], ['誤りのある日', errs + '日']]
         .forEach(function (kv) { dl.appendChild(ui.el('dt', { text: kv[0] })); dl.appendChild(ui.el('dd', { text: kv[1] })); });
-      ui.$('save').disabled = saving || !data.editable;
+      ui.$('save').disabled = saving || !data.editable || MP.guard.viewing(); // 社員の画面を見ている間は保存しない
       renderConflicts();
     }
 
@@ -243,7 +244,10 @@
         analyzeAll();
         grid = MP.grid.create(ui.$('grid'), {
           columns: columns, rowCount: rows.length,
-          rowHead: function (i) { var d = rows[i].day; return { text: dateLabel(d), label: dateLabel(d), cls: (d.dow === 0 ? 'sun' : d.dow === 6 ? 'sat' : '') + (d.companyType === 'H' ? ' off' : '') }; },
+          rowHead: function (i) {
+            var d = rows[i].day, out = d.state === 'out'; // 部長の範囲外の日
+            return { text: dateLabel(d) + (out ? '（範囲外）' : ''), label: dateLabel(d) + (out ? ' 範囲外' : ''), cls: (d.dow === 0 ? 'sun' : d.dow === 6 ? 'sat' : '') + (d.companyType === 'H' ? ' off' : '') };
+          },
           value: function (i, c) { var col = columns[c]; return col.kind === 'calc' ? display(i, c) : rows[i].cur[col.key]; },
           display: display, editable: editable, cellState: cellState, change: change,
           notify: function (t, k) { ui.pageMessage(t, k === 'ok' ? 'ok' : 'warn'); },
@@ -257,7 +261,7 @@
 
     function renderHead() {
       var admin = MP.guard.isAdmin(me);
-      ui.$('title').textContent = target ? data.employee.name + 'さんの日報（表）' : '日報（表）';
+      ui.$('title').textContent = target ? data.employee.name + 'さんの日報（表' + (data.viewOnly ? '・見るだけ' : '') + '）' : '日報（表）';
       ui.$('period-label').textContent = data.period.label;
       ui.$('next').disabled = !data.nextDate;
       ui.$('admin-bar').hidden = !admin;
@@ -296,7 +300,7 @@
         if (cache[i].first) { skipped++; return; }
         if (!x.rid) x.rid = MP.api.newRequestId();
         var s = toSend(x.cur).input;
-        send.push({ x: x, day: { date: x.day.date, baseVersion: x.baseVersion, requestId: x.rid, entries: s.entries, content: s.content, note: s.note } });
+        send.push({ x: x, day: { date: x.day.date, baseVersion: x.baseVersion, requestId: x.rid, entries: s.entries, note: s.note } });
       });
       if (!send.length) {
         ui.pageMessage(skipped || waiting ? '保存できる日がありません（誤りのある日 ' + skipped + ' 日・他の画面で更新された日 ' + waiting + ' 日）' : '保存していない日はありません', 'warn');
@@ -379,15 +383,15 @@
 
     function copyPrev() {
       setRows(grid.selectedRows(), function (i) {
-        var prev = i > 0 ? rows[i - 1].cur : inputOf(data.neighbors.before.input);
+        var prev = i > 0 ? rows[i - 1].cur : inputOf(data.neighbors ? data.neighbors.before.input : null);
         return hasInput(prev) ? Object.assign({}, prev) : null;
       }, '前日と同じ');
     }
 
-    /** 定型パターンを、入力の14列（備考は今のまま）にする */
+    /** 定型パターンを、入力の15列（備考は今のまま）にする */
     function patternInput(p, keepNote) {
       var R = data.rules;
-      var s = CR.toSlots(CR.normalizeDay({ entries: p.entries, content: p.content, note: '' }, R), CW, R);
+      var s = CR.toSlots(CR.normalizeDay({ entries: p.entries, note: '' }, R), CW, R);
       var out = emptyInput();
       if (s.ok) COLS.forEach(function (c) { out[c] = s.row[c]; });
       else {
@@ -395,7 +399,6 @@
           var e = p.entries[k];
           if (e) Object.keys(KEYS).forEach(function (key) { out[SLOT[slot] + KEYS[key]] = e[key] || ''; });
         });
-        out['施工内容'] = p.content || '';
       }
       out['備考'] = keepNote;
       return out;

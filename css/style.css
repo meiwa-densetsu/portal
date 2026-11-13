@@ -334,3 +334,20 @@ table.report-grid tr.fill-to td { background: var(--c-primary-weak); }
   .grid-input { height: calc(var(--tap) - 4px); font-size: var(--fs-base); }
   .grid-handle { width: 16px; height: 16px; }
 }
+
+/* 社員の画面を見ている間の帯（計画 stage1-viewas-plan.md 1-6） */
+.viewas-bar { background: var(--c-warn-weak); color: var(--c-warn); border-top: 2px solid var(--c-warn); }
+.viewas-bar .topbar-who { font-weight: 700; }
+
+/* 日報の一時コード・部長の一覧（手順9） */
+.share-code { font-size: 2rem; font-weight: 700; letter-spacing: .15em; text-align: center; margin: var(--sp-2) 0; }
+.manager-scroll { overflow-x: auto; max-width: 100%; margin: var(--sp-3) 0; }
+.manager-table { border-collapse: collapse; font-size: var(--fs-small); }
+.manager-table th, .manager-table td { border: 1px solid var(--c-line); padding: 4px 6px; white-space: pre; text-align: center; }
+.manager-table th.name { position: sticky; left: 0; background: var(--c-bg); text-align: left; }
+.manager-table th.name a { display: inline-block; min-height: 44px; line-height: 44px; }
+.manager-table td.out { color: var(--c-sub); }
+.manager-table td.missing { color: var(--c-warn); font-weight: 700; }
+.manager-table td.over { font-weight: 700; }
+.row-fields { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2); align-items: center; margin: var(--sp-2) 0; }
+.share-days .day-state { margin-left: var(--sp-2); }

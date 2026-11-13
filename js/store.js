@@ -6,6 +6,7 @@
  *   mp.token       localStorage（通常）／sessionStorage（「他の人も使う」）  ログインの記憶
  *   mp.lastLoginId localStorage（通常のログインのときだけ）  前回選んだ名前
  *   mp.timings     localStorage                 最近20回の通信（処理の名前・かかった時間・日時だけ）
+ *   mp.viewAs     sessionStorage  管理者が見ている社員の画面（そのタブだけ）
  *   mp.flash / mp.inviteName / mp.reloaded  sessionStorage  次の画面に1回だけ渡す文・名前、読み込み直しの印（秘密ではない）
  *
  * パスワード・仮パスワード・招待の文字列・追加コードは保存しない
@@ -13,7 +14,7 @@
 (function () {
   'use strict';
   var MP = window.MP = window.MP || {};
-  var K = { deviceKey: 'mp.deviceKey', deviceName: 'mp.deviceName', token: 'mp.token', lastLoginId: 'mp.lastLoginId', timings: 'mp.timings',
+  var K = { viewAs: 'mp.viewAs', deviceKey: 'mp.deviceKey', deviceName: 'mp.deviceName', token: 'mp.token', lastLoginId: 'mp.lastLoginId', timings: 'mp.timings',
     flash: 'mp.flash', inviteName: 'mp.inviteName', reloaded: 'mp.reloaded' };
   var TIMINGS_MAX = 20;
 
@@ -53,7 +54,7 @@
       set(shared ? S() : L(), K.token, token);
       if (shared) del(L(), K.lastLoginId);
     },
-    clearToken: function () { del(L(), K.token); del(S(), K.token); },
+    clearToken: function () { del(L(), K.token); del(S(), K.token); del(S(), K.viewAs); }, // 見ている印も消す（残るとログインの依頼に viewAs が付いて断られる）
 
     lastLoginId: function () { return get(L(), K.lastLoginId); },
     setLastLoginId: function (id) { set(L(), K.lastLoginId, id); },
@@ -76,5 +77,16 @@
     takeInviteName: function () { return take(K.inviteName); },
     reloaded: function () { return get(S(), K.reloaded); },
     setReloaded: function (v) { if (v) set(S(), K.reloaded, v); else del(S(), K.reloaded); },
+    /** 管理者が見ている社員の画面（{ employeeId, name }。そのタブだけ。計画 stage1-viewas-plan.md 1-6）。無い・形が違えば null */
+    viewAs: function () {
+      var v = get(S(), K.viewAs);
+      if (!v) return null;
+      try {
+        var o = JSON.parse(v);
+        return o && typeof o.employeeId === 'string' && /^E\d{4}$/.test(o.employeeId) && typeof o.name === 'string' ? o : null;
+      } catch (e) { return null; }
+    },
+    setViewAs: function (o) { set(S(), K.viewAs, JSON.stringify({ employeeId: o.employeeId, name: o.name })); },
+    clearViewAs: function () { del(S(), K.viewAs); },
   };
 })();

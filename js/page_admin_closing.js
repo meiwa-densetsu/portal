@@ -79,8 +79,8 @@
       // 結果が分からない（通信の失敗など）ときに押し直すと、同じ requestId で送り直す（二重にしない。MP.api.saver）
       return save(action, { periodId: p.periodId, baseVersion: p.recordVersion }).then(function (res) {
         if (!res.ok) {
-          ui.pageMessage(res.code === 'CONFLICT' ? '他の画面で締めが変わっています。読み込み直しました' : res.message, 'error');
-          return load(data.periods[0].to);
+          var text = res.code === 'CONFLICT' ? '他の画面で締めが変わっています。読み込み直しました' : res.message;
+          return load(data.periods[0].to).then(function () { ui.pageMessage(text, 'error'); });
         }
         return load(data.periods[0].to).then(function () { ui.pageMessage(done, 'ok'); });
       });
