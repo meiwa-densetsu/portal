@@ -9,13 +9,15 @@
  *   nextState(state, op)                … 状態の移り方（2-3）。できなければ null
  *   nextBusinessDay(date, isHoliday)    … 次の営業日（isHoliday(date) → true / false。分からない日は呼ぶ側が土日で答える）
  *   autoDeferTarget(date, today, isHoliday) … 自動の先送りの先と、飛ばした営業日の数（2-4）
- *   recurringDates(rule, from, to, isHoliday) … 定型タスクの当てはまる日（2-5）
+ *   recurringDates(rule, from, to, isHoliday) … 定型タスクの「入れる日」（2-5。v3 計画 2-1〜2-3: 毎年・月末・第n曜日・第n週の初営業日・第n営業日・休みは前の営業日へ）
+ *   isLongCycle(rule)                   … 毎月・毎年か（さかのぼりの限りを長くする。v3 計画 2-4）
+ *   can(…, 'remind')・remindAt・remindDue・remindKey … リマインダー（v3 計画 第3章）
  *   sortDay(list)                       … 表示の並びの正本（v2 計画 2-3: 状態の組 → 急ぎ → 締め切り → 並び → タスクID）
  *   groupKey(task)                      … 並べ替えの「群」の鍵（同じ群の中でだけ 上へ・下へ ができる）
  *   dueLevel(task, nowDate, nowMin, soonDays) … 締め切りの段階（v2 計画 2-2）: ''・normal・soon・over
  *   dueLabel(task, nowDate, nowMin, soonDays) … 締め切りの印の文字（〆11/20・〆明日・〆過ぎ 11/13）
  *   taskToday(date, minutes, startMin)  … タスクの今日（v2 計画 2-6。startMin より前の時刻は前の日）
- * v2 の計画: docs/plans/stage2-tasklist-v2-plan.md
+ * v2 の計画: docs/plans/stage2-tasklist-v2-plan.md。v3 の計画: docs/plans/stage2-tasklist-v3-plan.md
  */
 var CalcTask = (function () {
   'use strict';
@@ -23,7 +25,18 @@ var CalcTask = (function () {
   var STATE = { OPEN: '未完了', DONE: '完了', DEFERRED: '先送り', CANCELLED: '取りやめ' };
   var STATES = [STATE.OPEN, STATE.DONE, STATE.DEFERRED, STATE.CANCELLED];
   var URGENCY = ['至急', '急ぎ', '通常'];
-  var REPEAT = { DAILY: '毎日', WEEKLY: '曜日', MONTHLY: '毎月' };
+  var REPEAT = { DAILY: '毎日', WEEKLY: '曜日', MONTHLY: '毎月', YEARLY: '毎年' };
+  /** 毎月・毎年の「日の決め方」（v3 計画 2-1）。空は DAY と同じ */
+  var DAY_KIND = { DAY: '日', LAST: '月末', NTH_WEEKDAY: '第n曜日', WEEK_FIRST_BIZ: '第n週の初営業日', NTH_BIZ: '第n営業日' };
+  var DAY_KINDS = [DAY_KIND.DAY, DAY_KIND.LAST, DAY_KIND.NTH_WEEKDAY, DAY_KIND.WEEK_FIRST_BIZ, DAY_KIND.NTH_BIZ];
+  /** 休みの日に当たったとき（v3 計画 2-2） */
+  var HOLIDAY = { PREV: '前の営業日', SKIP: '飛ばす', KEEP: 'そのまま' };
+  var HOLIDAYS = [HOLIDAY.PREV, HOLIDAY.SKIP, HOLIDAY.KEEP];
+  /** 第n の特別な値: 最後の◯曜日・最後の営業日。ふつうの値の範囲は NTH_RANGE */
+  var NTH_LAST_WEEKDAY = 9, NTH_LAST_BIZ = 99;
+  var NTH_RANGE = { WEEKDAY: [1, 5], WEEK: [1, 6], BIZ: [1, 23] };
+  /** リマインダーの種類（知らせ済みの印の鍵に入る） */
+  var REMIND_KIND = { EARLY: 'early', MAIN: 'main' };
   var ADMIN = '管理者';
   var DAY_MS = 86400000;
 
@@ -63,6 +76,7 @@ var CalcTask = (function () {
       case 'cancel': return admin || isRequester || (isOwner && !requested); // 依頼されたタスクは、依頼された人が取りやめにできない（仕様書 第12章）
       case 'delete': return open && (admin || isRequester || (isOwner && !requested));
       case 'move': return admin || isOwner;
+      case 'remind': return open && (admin || isOwner); // リマインダーは担当の持ち物（v3 計画 3-2）
       default: return false;
     }
   }
@@ -114,26 +128,100 @@ var CalcTask = (function () {
     return { to: d, hops: hops };
   }
 
+  /** 休みの扱い（v3 計画 2-2）。新しい値が無い行は、今までの「営業日だけ」から読む。営業日で決める日の決め方は、そのまま */
+  function holidayOf(rule) {
+    if (!rule) return HOLIDAY.KEEP;
+    var long = rule.repeat === REPEAT.MONTHLY || rule.repeat === REPEAT.YEARLY;
+    if (long && (rule.dayKind === DAY_KIND.WEEK_FIRST_BIZ || rule.dayKind === DAY_KIND.NTH_BIZ)) return HOLIDAY.KEEP;
+    if (HOLIDAYS.indexOf(rule.holiday) >= 0) return rule.holiday;
+    return rule.businessOnly ? HOLIDAY.SKIP : HOLIDAY.KEEP;
+  }
+
+  /** 毎月・毎年か（さかのぼりの限りを長くする定型。v3 計画 2-4）。日の決め方・休みの扱いには依らない */
+  function isLongCycle(rule) {
+    return !!rule && (rule.repeat === REPEAT.MONTHLY || rule.repeat === REPEAT.YEARLY);
+  }
+
+  function dayOfMonth(d) { return Number(d.slice(8, 10)); }
+  function sameMonth(a, b) { return a.slice(0, 7) === b.slice(0, 7); }
+
+  /** 毎月・毎年の「日の決め方」に、その日が当てはまるか（名目の日） */
+  function matchDayKind(rule, d, hol) {
+    var kind = rule.dayKind || DAY_KIND.DAY;
+    var day = dayOfMonth(d), nth = Number(rule.nth), k;
+    if (kind === DAY_KIND.DAY) return day === Number(rule.day);
+    if (kind === DAY_KIND.LAST) return !sameMonth(addDays(d, 1), d);
+    if (kind === DAY_KIND.NTH_WEEKDAY) {
+      if (dowOf(d) !== Number(rule.weekday)) return false;
+      return nth === NTH_LAST_WEEKDAY ? !sameMonth(addDays(d, 7), d) : Math.ceil(day / 7) === nth;
+    }
+    if (kind === DAY_KIND.WEEK_FIRST_BIZ) {
+      // 週は日曜始まり（壁のカレンダーの段と同じ）。第 1 週は 1 日を含む週（v3 計画 2-1。ユーザー決定 2026-11-14）
+      var pos = dowOf(d); // 日曜 = 0 … 土曜 = 6
+      var firstPos = dowOf(addDays(d, 1 - day));
+      if (Math.floor((day - 1 + firstPos) / 7) + 1 !== nth || hol(d)) return false;
+      for (k = 1; k <= pos && day - k >= 1; k++) if (!hol(addDays(d, -k))) return false; // 同じ週・同じ月に、もっと前の営業日がある
+      return true;
+    }
+    if (kind === DAY_KIND.NTH_BIZ) {
+      if (hol(d)) return false;
+      if (nth === NTH_LAST_BIZ) {
+        for (k = 1; sameMonth(addDays(d, k), d); k++) if (!hol(addDays(d, k))) return false;
+        return true;
+      }
+      var count = 1;
+      for (k = 1; day - k >= 1; k++) if (!hol(addDays(d, -k))) count++;
+      return count === nth;
+    }
+    return false;
+  }
+
+  /** その日が、決まり（繰り返し・月・日の決め方）に当てはまるか（名目の日。休みの扱いは見ない） */
+  function matchRule(rule, d, hol) {
+    if (rule.repeat === REPEAT.DAILY) return true;
+    if (rule.repeat === REPEAT.WEEKLY) return (rule.weekdays || []).indexOf(dowOf(d)) >= 0;
+    if (rule.repeat === REPEAT.MONTHLY) return matchDayKind(rule, d, hol);
+    if (rule.repeat === REPEAT.YEARLY) return Number(d.slice(5, 7)) === Number(rule.month) && matchDayKind(rule, d, hol);
+    return false;
+  }
+
   /**
-   * 定型タスクの当てはまる日（計画 2-5）。from〜to（両端を含む）の中で。
-   * rule: { repeat: 毎日・曜日・毎月, weekdays: [0..6]（曜日のとき）, day: 1〜31（毎月のとき）, businessOnly, start, end（空なら無期限） }
+   * 定型タスクの「入れる日」（計画 2-5・v3 計画 2-3）。from〜to（両端を含む）に入るものを、昇順・重なり無しで返す。
+   * rule: { repeat: 毎日・曜日・毎月・毎年, weekdays: [0..6]（曜日のとき）, month: 1〜12（毎年）,
+   *         dayKind（毎月・毎年。空は「日」）, day: 1〜31, nth, weekday: 0〜6,
+   *         holiday: 前の営業日・飛ばす・そのまま（無ければ businessOnly から）, shiftMax（前へずらす日数の限り。呼ぶ側が設定から入れる）,
+   *         start, end（空なら無期限。名目の日に当てる） }
+   * 手順: 名目の日を from〜to + shiftMax で調べる → start・end → 決まり → 休みの扱い → 入れる日が from〜to のものだけ
    */
   function recurringDates(rule, from, to, isHoliday) {
     var out = [];
     if (!rule || !isDate(from) || !isDate(to) || from > to) return out;
-    var lo = rule.start && rule.start > from ? rule.start : from;
-    var hi = rule.end && rule.end < to ? rule.end : to;
     var hol = isHoliday || weekendHoliday;
-    for (var n = dayNumber(lo); n <= dayNumber(hi); n++) {
+    var mode = holidayOf(rule);
+    var shiftMax = mode === HOLIDAY.PREV ? Math.max(0, Math.floor(Number(rule.shiftMax) || 0)) : 0;
+    var seen = {};
+    for (var n = dayNumber(from), last = dayNumber(to) + shiftMax; n <= last; n++) {
       var d = dateOf(n);
-      var ok = false;
-      if (rule.repeat === REPEAT.DAILY) ok = true;
-      else if (rule.repeat === REPEAT.WEEKLY) ok = (rule.weekdays || []).indexOf(dowOf(d)) >= 0;
-      else if (rule.repeat === REPEAT.MONTHLY) ok = Number(d.slice(8, 10)) === Number(rule.day);
-      if (ok && rule.businessOnly && hol(d)) ok = false;
-      if (ok) out.push(d);
+      if (rule.start && d < rule.start) continue;
+      if (rule.end && d > rule.end) continue;
+      if (!matchRule(rule, d, hol)) continue;
+      var put = d;
+      if (hol(d)) {
+        if (mode === HOLIDAY.SKIP) continue;
+        if (mode === HOLIDAY.PREV) {
+          put = null;
+          for (var k = 1; k <= shiftMax; k++) {
+            var e = addDays(d, -k);
+            if (!hol(e)) { put = e; break; }
+          }
+          if (!put) continue;
+        }
+      }
+      if (put < from || put > to || seen[put]) continue;
+      seen[put] = true;
+      out.push(put);
     }
-    return out;
+    return out.sort();
   }
 
   function isTime(text) { return typeof text === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(text); }
@@ -188,6 +276,48 @@ var CalcTask = (function () {
     return Number(minutes) < Number(startMin) ? addDays(date, -1) : date;
   }
 
+  /** 日本時間の「その日のその時刻」のミリ秒（端末のタイムゾーンに依らない） */
+  function jstMs(date, time) {
+    return Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)), Number(time.slice(0, 2)) - 9, Number(time.slice(3, 5)));
+  }
+
+  /** リマインダーの時刻（v3 計画 3-1）: { main, early（早めの知らせ。無ければ null） }。形が違えば null */
+  function remindAt(item) {
+    if (!item || !isDate(item.date) || !isTime(item.time)) return null;
+    var main = jstMs(item.date, item.time);
+    var e = Number(item.early);
+    return { main: main, early: e > 0 ? main - e * 60000 : null };
+  }
+
+  /** 知らせ済みの印の鍵（タスクの日付と時刻で作る。出した日では作らない。v3 計画 3-4） */
+  function remindKey(item, kind) { return str_(item.taskId) + '|' + item.date + '|' + item.time + '|' + kind; }
+
+  /**
+   * 今、知らせるもの（v3 計画 3-4）。items: [{ taskId, date, time, early, … }]、nowMs: サーバーの今、done: { 鍵: 真 }、lateMaxMin: 過ぎてから出す限り。
+   * 返す値: { fire: [{ key, kind, item, late（時刻からの遅れの分）, left（早めの知らせ: 本番までの分） }], expire: [もう出さない鍵] }
+   *   早めの知らせ … 早めの時刻 〜 本番の時刻の前。本番の時刻を過ぎたら出さない（expire）
+   *   時刻の知らせ … 本番の時刻 〜 lateMaxMin 分後。それより後は出さない（expire）
+   */
+  function remindDue(items, nowMs, done, lateMaxMin) {
+    var fire = [], expire = [];
+    var seen = done || {};
+    (items || []).forEach(function (it) {
+      var at = remindAt(it);
+      if (!at) return;
+      var kM = remindKey(it, REMIND_KIND.MAIN), kE = remindKey(it, REMIND_KIND.EARLY);
+      if (at.early !== null && !seen[kE]) {
+        if (nowMs >= at.main) expire.push(kE);
+        else if (nowMs >= at.early) fire.push({ key: kE, kind: REMIND_KIND.EARLY, item: it, late: Math.floor((nowMs - at.early) / 60000), left: Math.ceil((at.main - nowMs) / 60000) });
+      }
+      if (!seen[kM] && nowMs >= at.main) {
+        var late = Math.floor((nowMs - at.main) / 60000);
+        if (late > Number(lateMaxMin)) expire.push(kM);
+        else fire.push({ key: kM, kind: REMIND_KIND.MAIN, item: it, late: late, left: 0 });
+      }
+    });
+    return { fire: fire, expire: expire };
+  }
+
   /** 急ぎの印（色だけに頼らない文字。計画 2-7） */
   function urgencyMark(u) { return u === '至急' ? '‼至急' : u === '急ぎ' ? '！急ぎ' : ''; }
 
@@ -198,6 +328,8 @@ var CalcTask = (function () {
 
   return {
     STATE: STATE, STATES: STATES, URGENCY: URGENCY, REPEAT: REPEAT, OP_PERMISSION: OP_PERMISSION,
+    DAY_KIND: DAY_KIND, DAY_KINDS: DAY_KINDS, HOLIDAY: HOLIDAY, HOLIDAYS: HOLIDAYS, NTH_LAST_WEEKDAY: NTH_LAST_WEEKDAY, NTH_LAST_BIZ: NTH_LAST_BIZ, NTH_RANGE: NTH_RANGE,
+    REMIND_KIND: REMIND_KIND, holidayOf: holidayOf, isLongCycle: isLongCycle, remindAt: remindAt, remindKey: remindKey, remindDue: remindDue,
     isDate: isDate, addDays: addDays, dowOf: dowOf, dayNumber: dayNumber, dateOf: dateOf,
     can: can, addKind: addKind, nextState: nextState, weekendHoliday: weekendHoliday,
     nextBusinessDay: nextBusinessDay, autoDeferTarget: autoDeferTarget, recurringDates: recurringDates,

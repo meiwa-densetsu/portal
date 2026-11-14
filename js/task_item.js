@@ -32,6 +32,7 @@
     if (it.consult) list.push(ui.el('span', { class: 'tk-tag', text: '相談' }));
     if (it.hidden) list.push(ui.el('span', { class: 'tk-tag', text: '🔒' }));
     if (it.deferCount >= warn && open) list.push(ui.el('span', { class: 'tk-tag warn', text: '↻' + it.deferCount }));
+    if (it.remindTime && open) list.push(ui.el('span', { class: 'tk-tag', text: MP.taskView.remindMark(it) }));
     return list.length ? ui.el('span', { class: 'tk-tags' }, list) : null;
   }
 

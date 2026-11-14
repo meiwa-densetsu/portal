@@ -8,6 +8,8 @@
  *   mp.timings     localStorage                 最近20回の通信（処理の名前・かかった時間・日時だけ）
  *   mp.me          token と同じ領域            自分の情報の控え（表示用。{ k: token の目印, me }。計画 stage2-switch-speed-plan.md 1-1）
  *   mp.view.tasks  sessionStorage              タスクリストの今月の控え（表示用。{ k, id: 社員ID, data }。同 1-3）
+ *   mp.remind      sessionStorage              今日の前後 1 日の自分のリマインダーの控え（{ k, id, at, offset, items, more }。計画 stage2-tasklist-v3-plan.md 3-4）
+ *   mp.remind.done localStorage                知らせ済みの印（{ 鍵: 時刻 }。鍵は タスクID|日付|時刻|種類。**内容は入れない**。3 日で捨てる。ログアウトでは消さない＝同じ知らせをもう一度出さない）
  *   mp.viewAs     sessionStorage  管理者が見ている社員の画面（そのタブだけ）
  *   mp.flash / mp.inviteName / mp.reloaded  sessionStorage  次の画面に1回だけ渡す文・名前、読み込み直しの印（秘密ではない）
  *
@@ -17,7 +19,9 @@
   'use strict';
   var MP = window.MP = window.MP || {};
   var K = { viewAs: 'mp.viewAs', deviceKey: 'mp.deviceKey', deviceName: 'mp.deviceName', token: 'mp.token', lastLoginId: 'mp.lastLoginId', timings: 'mp.timings',
-    flash: 'mp.flash', inviteName: 'mp.inviteName', reloaded: 'mp.reloaded', me: 'mp.me', taskView: 'mp.view.tasks' };
+    flash: 'mp.flash', inviteName: 'mp.inviteName', reloaded: 'mp.reloaded', me: 'mp.me', taskView: 'mp.view.tasks', remind: 'mp.remind', remindDone: 'mp.remind.done' };
+  var REMIND_DONE_KEEP_MS = 3 * 86400000; // 知らせ済みの印を残す長さ
+  var REMIND_DONE_MAX = 2000;             // 印の数の上限（古いものから捨てる）
   var TIMINGS_MAX = 20;
   var VIEW_MAX_CHARS = 1500000; // タスクの控えの大きさの上限（超えたら覚えない）
   var sealed = false;           // clearToken の後は、このページではもう控えを書かない（消した後の pagehide で書き直さない）
@@ -83,7 +87,7 @@
     clearToken: function () {
       sealed = true; // 初めに立てる（この後に来る pagehide などで控えを書き直さない）
       del(L(), K.token); del(S(), K.token); del(S(), K.viewAs); // 見ている印も消す（残るとログインの依頼に viewAs が付いて断られる）
-      wipe(L(), K.me); wipe(S(), K.me); wipe(S(), K.taskView);
+      wipe(L(), K.me); wipe(S(), K.me); wipe(S(), K.taskView); wipe(S(), K.remind);
     },
 
     /**
@@ -126,6 +130,48 @@
       if (!text || text.length > VIEW_MAX_CHARS || !set(S(), K.taskView, text)) wipe(S(), K.taskView);
     },
     clearTaskView: function () { wipe(S(), K.taskView); },
+
+    /**
+     * リマインダーの控え（計画 stage2-tasklist-v3-plan.md 3-4）。今の token・控えの me の社員・頼んだ社員のものだけ返す（形が違えば null）。
+     * 知らせを出す処理は、出す直前に必ずこれを通す（ログアウトの後・見ている間は null）
+     */
+    remind: function (employeeId) {
+      var me = MP.store.me();
+      if (!me || me.employeeId !== employeeId) return null;
+      var o = parse(get(S(), K.remind));
+      return o && o.k === mark(MP.store.token()) && o.id === me.employeeId && Array.isArray(o.items) && typeof o.at === 'number' && typeof o.offset === 'number' ? o : null;
+    },
+    /** リマインダーの控えを書く。clearToken の後は何もしない。token が無い・控えの me と社員が違う・書けないときは消す */
+    setRemind: function (employeeId, v) {
+      if (sealed) return;
+      var me = MP.store.me();
+      if (!me || me.employeeId !== employeeId) { wipe(S(), K.remind); return; }
+      var text;
+      try { text = JSON.stringify({ k: mark(MP.store.token()), id: employeeId, at: v.at, offset: v.offset, items: v.items, more: v.more === true }); } catch (e) { text = ''; }
+      if (!text || text.length > VIEW_MAX_CHARS || !set(S(), K.remind, text)) wipe(S(), K.remind);
+    },
+    clearRemind: function () { wipe(S(), K.remind); },
+    REMIND_DONE_KEY: K.remindDone,
+    /** 知らせ済みの印 { 鍵: 時刻 }。時刻が正 = 知らせた、負 = 出さないことにした（時刻を過ぎた）。内容は入っていない */
+    remindDone: function () {
+      var o = parse(get(L(), K.remindDone));
+      var out = {};
+      if (!o || Array.isArray(o)) return out;
+      Object.keys(o).forEach(function (k) { if (typeof o[k] === 'number' && o[k] !== 0) out[k] = o[k]; });
+      return out;
+    },
+    /** 印を足す（quiet が真なら「出さないことにした」印）。3 日より古い印は捨てる。書けなければ偽 */
+    addRemindDone: function (keys, quiet) {
+      var now = Date.now();
+      var o = MP.store.remindDone();
+      Object.keys(o).forEach(function (k) { if (now - Math.abs(o[k]) > REMIND_DONE_KEEP_MS) delete o[k]; });
+      (keys || []).forEach(function (k) { if (!o[k]) o[k] = quiet ? -now : now; });
+      var all = Object.keys(o);
+      if (all.length > REMIND_DONE_MAX) {
+        all.sort(function (a, b) { return Math.abs(o[a]) - Math.abs(o[b]); }).slice(0, all.length - REMIND_DONE_MAX).forEach(function (k) { delete o[k]; });
+      }
+      return set(L(), K.remindDone, JSON.stringify(o));
+    },
 
     lastLoginId: function () { return get(L(), K.lastLoginId); },
     setLastLoginId: function (id) { set(L(), K.lastLoginId, id); },

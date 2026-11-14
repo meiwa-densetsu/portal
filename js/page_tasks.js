@@ -36,10 +36,13 @@
     var stale = false;     // 控えを出している間（loading は立てたまま。書く操作はすべて loading で止まる）
     var gotFresh = false;  // この画面で、本物の task.month を 1 回は読めた
     var sideCalls = 0;     // 列を通らない通信（依頼を見た印・知らせの ✕）の途中の数
+    var sideUnknown = false; // その通信が、結果の分からないまま終わった（画面を離れるときに打ち切られた・電波なし）。次に最新を読むまで控えを書かない
     var STALE_TEXT = '前に開いたときの内容です。最新を確かめています…';
     var STALE_FAILED_TEXT = '前に開いたときの内容です（最新を読めませんでした。画面を読み込み直してください）';
 
     function viewing() { return MP.guard.viewing(); }
+    /** 結果が分からない失敗か（通信が切れた・混み合い・途中で止まった。画面を離れるときにブラウザが打ち切った通信も NETWORK になる） */
+    function unknownResult(res) { return res.code === 'NETWORK' || res.code === 'BUSY' || res.code === 'INTERNAL'; }
     /** 開く月の初めの見当（端末の時計で、朝 6 時より前は前の日。本当の「タスクの今日」はサーバーの答えで決め直す） */
     function guessToday() { return new Date(Date.now() + 9 * 3600000 - 6 * 3600000).toISOString().slice(0, 10); }
     function md(d) { return Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)); }
@@ -91,6 +94,7 @@
         data = r.res.data;
         stale = false;
         gotFresh = true;
+        sideUnknown = false; // 最新を読めた
         ui.$('stale-note').hidden = true;
         saveView(); // 描く前に（描くと「依頼を見た印」の通信が始まることがある）
         adopt();
@@ -125,7 +129,7 @@
      */
     function saveView() {
       if (viewing()) return;
-      var ok = gotFresh && !stale && !loading && !sending && !queue.length && !failed && !sideCalls
+      var ok = gotFresh && !stale && !loading && !sending && !queue.length && !failed && !sideCalls && !sideUnknown
         && !!data && !!me && data.month === String(data.taskToday).slice(0, 7);
       if (ok) MP.store.setTaskView(me.employeeId, data); else MP.store.clearTaskView();
     }
@@ -169,6 +173,7 @@
       ui.$('table-pane').hidden = mode !== 'table';
       ui.$('list-pane').hidden = mode === 'table';
       ui.$('add-tools').hidden = viewing();
+      renderNotify();
       renderSide();
       renderQueue();
       sendSeen();
@@ -245,6 +250,7 @@
       sideCalls++; // 答えが来るまでは、控えを書かない
       MP.api.call('task.notice.dismiss', { items: [{ taskId: n.taskId, kind: n.kind, stamp: n.stamp }] }, { requestId: MP.api.newRequestId() }).then(function (res) {
         sideCalls--;
+        if (!res.ok && unknownResult(res)) sideUnknown = true;
         if (!res.ok) { ui.pageMessage(res.message || '知らせを消せませんでした', 'error'); return; }
         data.notices = data.notices.filter(function (x) { return !(x.taskId === n.taskId && x.kind === n.kind && x.stamp === n.stamp); });
         if (res.data.skipped && res.data.skipped.length) { if (!sending && !queue.length) reloadNow(); return; }
@@ -265,6 +271,7 @@
         sideCalls++; // 答えが来るまでは、控えを書かない
         MP.api.call('task.request.seen', { items: part.map(function (i) { return { taskId: i.taskId, baseVersion: i.recordVersion }; }) }, { requestId: MP.api.newRequestId() }).then(function (res) {
           sideCalls--;
+          if (!res.ok && unknownResult(res)) sideUnknown = true;
           // 送れなかったときは「送った」の印を外す（次に描くときにもう一度送る。内部レビュー low）
           if (!res.ok) part.forEach(function (i) { delete seenSent[i.taskId + ':' + i.recordVersion]; });
         });
@@ -438,6 +445,7 @@
       set('t-reopen', it && it.can.complete && it.state === '完了');
       set('t-defer', it && it.can.defer && it.state === '未完了');
       set('t-due', it && it.can.edit);
+      set('t-remind', it && it.can.remind);
       set('t-cancel', it && it.can.cancel && it.state === '未完了');
       set('t-uncancel', it && it.can.cancel && it.state === '取りやめ');
       set('t-urgency', it && it.can.edit);
@@ -521,6 +529,7 @@
         if (it.can.complete && it.state === '完了') add('未完了に戻す', 'reopen');
         if (it.can.note) add(it.note ? '完了の一言を直す' : '完了の一言を足す', 'note');
         if (it.can.defer && it.state === '未完了') add('先送り', 'defer');
+        if (it.can.remind) add(it.remindTime ? 'リマインダーを直す' : 'リマインダーを付ける', 'remind');
         if (it.can.edit) { add('締め切り', 'due'); add('急ぎの度合い', 'urgency'); add('内容を直す', 'content'); add(it.hidden ? '見せる（🔒 を外す）' : '隠す（🔒）', 'hide'); }
         if (it.can.consult) add(it.consult ? '相談を直す' : '依頼した人に相談する', 'consult');
         if (it.can.cancel && it.state === '未完了') add('取りやめ', 'cancel');
@@ -535,6 +544,7 @@
         if (v === 'complete' || v === 'reopen' || v === 'cancel' || v === 'uncancel') return stateOp(it, v);
         if (v === 'defer') return deferOp(it);
         if (v === 'due') return dueOp(it);
+        if (v === 'remind') return remindOp(it);
         if (v === 'urgency') return urgencyOp(it);
         if (v === 'content') return contentOp(it);
         if (v === 'hide') return hideOp(it);
@@ -569,6 +579,49 @@
         if (!v || (v.due === it.due && v.dueTime === it.dueTime)) return;
         updateOp(it, { due: v.due, dueTime: v.dueTime });
       });
+    }
+
+    /** リマインダーを付ける・直す・外す（担当と管理者。v3 計画 3-2）。内容などを直す処理とは別の処理で送る */
+    function remindOp(it) {
+      return TD.remind({ it: it, rules: data.rules }).then(function (v) {
+        if (!v || (v.remindTime === (it.remindTime || '') && (v.remindEarly || '') === (it.remindEarly || ''))) return;
+        var id = it.taskId;
+        enqueue({ action: 'task.remind', label: '「' + it.content + '」のリマインダー',
+          args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0, remindTime: v.remindTime, remindEarly: v.remindEarly }; } });
+      });
+    }
+
+    /** まとめて取り込む（Excel の 1 列を貼り付ける。v3 計画 第4章）。送るのは今までの「まとめて足す」（50 件ずつ） */
+    function importOp() {
+      return MP.taskImport.open({
+        people: data.people, meId: me.employeeId, isAdmin: me.role === '管理者', date: day, rules: data.rules,
+        existing: function (ownerId, date) {
+          return data.items.filter(function (i) { return i.owner === ownerId && i.date === date && i.state !== '取りやめ'; }).map(function (i) { return i.content; });
+        },
+      }).then(function (v) {
+        if (!v || loading) return;
+        var adds = v.contents.map(function (c) { return { ownerId: v.ownerId, date: v.date, content: c }; });
+        var tally = { saved: 0, errors: [] }; // 塊をまたいで数える（入った数・入らなかったものと理由）
+        for (var i = 0; i < adds.length; i += 50) {
+          (function (part, last) {
+            enqueue({ action: 'task.addMany', args: function () { return { items: part }; }, label: part.length + ' 件の取り込み', reload: last,
+              names: part.map(function (x) { return x.content; }), tally: tally, last: last });
+          })(adds.slice(i, i + 50), i + 50 >= adds.length);
+        }
+      });
+    }
+
+    /** リマインダーの通知（パソコンのポップアップ）の状態と、許可のボタン（v3 計画 3-4） */
+    function renderNotify() {
+      var box = ui.$('notify-box');
+      box.hidden = viewing() || !MP.remind;
+      if (box.hidden) return;
+      var p = MP.remind.permission();
+      ui.$('notify-state').textContent = p === 'granted' ? 'この端末では、リマインダーの時刻に通知（ポップアップ）も出します。ポータルを開いている間だけ出ます。'
+        : p === 'denied' ? '通知はブラウザの設定で止められています。出したいときは、ブラウザのアドレス欄の左の印から、このページの「通知」を許可してください。リマインダーは画面の上の帯で知らせます。'
+        : p === 'default' ? 'リマインダーは画面の上の帯で知らせます。パソコンでは、下のボタンで通知（ポップアップ）も出せます。ポータルを開いている間だけ出ます。'
+        : 'この端末では通知（ポップアップ）は使えません。リマインダーは、ポータルを開いている間、画面の上の帯で知らせます。';
+      ui.$('notify-btn').hidden = p !== 'default';
     }
 
     function urgencyOp(it) {
@@ -739,6 +792,7 @@
           return;
         }
         applyResult(op, res.data);
+        if (MP.remind) MP.remind.touch(); // 操作の後、少し待ってからリマインダーの一覧を読み直す（v3 計画 3-4）
         // 足す・先送り・隠す・消す・並べ替え・申し送りは、印や並び・番号が変わるので読み直す
         if (op.reload) return load(false).then(function () { pump(); });
         jumpToday = false;
@@ -767,7 +821,16 @@
       };
       if (d.item && d.item.taskId) set(d.item);
       if (d.results) d.results.forEach(function (x) { set(x.item); });
-      if (d.results && d.results.some(function (x) { return x.status === 'error'; })) {
+      if (d.results && op.tally) {
+        // 取り込み: 最後の塊の答えの後に、まとめて 1 回だけ出す
+        d.results.forEach(function (x) {
+          if (x.status === 'error') op.tally.errors.push('「' + (op.names[x.index] || (x.index + 1) + '件目') + '」: ' + x.message); else op.tally.saved++;
+        });
+        if (op.last) {
+          var er = op.tally.errors;
+          ui.pageMessage(op.tally.saved + ' 件を取り込みました' + (er.length ? '。' + er.length + ' 件は入りませんでした:\n' + er.join('\n') : ''), er.length ? 'warn' : 'ok');
+        }
+      } else if (d.results && d.results.some(function (x) { return x.status === 'error'; })) {
         ui.pageMessage(d.results.filter(function (x) { return x.status === 'error'; }).map(function (x) { return (x.index + 1) + '件目: ' + x.message; }).join('\n'), 'warn');
       }
     }
@@ -783,6 +846,7 @@
     ui.$('t-reopen').addEventListener('click', withSel(function (it) { stateOp(it, 'reopen'); }));
     ui.$('t-defer').addEventListener('click', withSel(deferOp));
     ui.$('t-due').addEventListener('click', withSel(dueOp));
+    ui.$('t-remind').addEventListener('click', withSel(remindOp));
     ui.$('t-cancel').addEventListener('click', withSel(function (it) { stateOp(it, 'cancel'); }));
     ui.$('t-uncancel').addEventListener('click', withSel(function (it) { stateOp(it, 'uncancel'); }));
     ui.$('t-urgency').addEventListener('click', withSel(urgencyOp));
@@ -851,6 +915,8 @@
       addDialog(others[0].employeeId, true);
     });
     ui.$('handover-add').addEventListener('click', function () { if (!loading && !viewing()) handoverOp(null); });
+    ui.$('import-btn').addEventListener('click', function () { if (!loading && !viewing()) importOp(); });
+    ui.$('notify-btn').addEventListener('click', function () { MP.remind.ask().then(renderNotify); });
 
     // 初め: タスクの今日の月。見る形は端末で最後に使った方（初めはパソコンの幅なら表、スマホは一覧）
     var q = new URLSearchParams(window.location.search);

@@ -49,7 +49,18 @@
     if (it.fresh) out.push('新');
     if (it.hidden) out.push('🔒');
     if (it.deferCount >= warn && it.state === '未完了') out.push('↻' + it.deferCount);
+    if (it.remindTime && it.state === '未完了') out.push(remindMark(it));
     return out;
+  }
+
+  /** リマインダーの印（⏰15:00）。v3 計画 3-5。担当と管理者にだけ値が来る */
+  function remindMark(it) { return '⏰' + Number(it.remindTime.slice(0, 2)) + ':' + it.remindTime.slice(3, 5); }
+  /** 早めの分の言い方（15 分・2 時間） */
+  function earlyText(n) { return n >= 60 && n % 60 === 0 ? (n / 60) + ' 時間' : n + ' 分'; }
+  /** 全文の中のリマインダー（リマインダー 15:00（15 分前にも））。無ければ '' */
+  function remindText(it) {
+    if (!it.remindTime) return '';
+    return 'リマインダー ' + Number(it.remindTime.slice(0, 2)) + ':' + it.remindTime.slice(3, 5) + (it.remindEarly ? '（' + earlyText(it.remindEarly) + '前にも）' : '');
   }
 
   function stateText(it) { return it.state === '完了' ? ' ✓完了' : it.state === '取りやめ' ? '（取りやめ）' : ''; }
@@ -73,6 +84,7 @@
     if (it.deferCount) parts.push('先送り ' + it.deferCount + ' 回');
     if (it.note) parts.push('一言: ' + it.note);
     if (it.consult) parts.push('相談: ' + it.consult.text);
+    if (it.remindTime && it.state === '未完了') parts.push(remindText(it));
     var u = ct().urgencyMark(it.urgency);
     return (e.no ? e.no + '. ' : '') + (u ? u + ' ' : '') + it.content + (it.hidden ? ' 🔒' : '') + '（' + parts.join('・') + '）';
   }
@@ -131,7 +143,7 @@
   }
 
   var api = { ALL: ALL, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
-    people: people, handovers: handovers, summary: summary, moveArgs: moveArgs };
+    people: people, handovers: handovers, summary: summary, moveArgs: moveArgs, remindMark: remindMark, remindText: remindText, earlyText: earlyText };
   if (root) { root.MP = root.MP || {}; root.MP.taskView = api; }
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : null);

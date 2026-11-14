@@ -10,15 +10,18 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=10">
-<script src="js/boot.js?v=10" defer></script>
-<script src="js/config.js?v=10" defer></script>
-<script src="js/store.js?v=10" defer></script>
-<script src="js/ui.js?v=10" defer></script>
-<script src="js/api.js?v=10" defer></script>
-<script src="js/guard.js?v=10" defer></script>
-<script src="gen/calc_task.js?v=10" defer></script>
-<script src="js/page_task_recurring.js?v=10" defer></script>
+<link rel="stylesheet" href="css/style.css?v=11">
+<script src="js/boot.js?v=11" defer></script>
+<script src="js/config.js?v=11" defer></script>
+<script src="js/store.js?v=11" defer></script>
+<script src="js/ui.js?v=11" defer></script>
+<script src="js/api.js?v=11" defer></script>
+<script src="js/guard.js?v=11" defer></script>
+<script src="gen/calc_task.js?v=11" defer></script>
+<script src="js/remind.js?v=11" defer></script>
+<script src="js/task_view.js?v=11" defer></script>
+<script src="js/task_dialogs.js?v=11" defer></script>
+<script src="js/page_task_recurring.js?v=11" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -26,8 +29,8 @@
 <div id="msg" class="msg error" role="alert" hidden></div>
 
 <div id="view" hidden>
-  <h1>定型タスク</h1>
-  <p class="sub">毎日・決まった曜日・毎月決まった日に、タスクリストへ自動で入れるタスクです。その日になってタスクリストを開いたときに入ります。</p>
+  <h1>定型タスク（定期的な予定）</h1>
+  <p class="sub">毎日・毎週・毎月・毎年の決まった日に、タスクリストへ自動で入れるタスクです。その日になって、だれかがポータルを開いたときに入ります。毎月・毎年のタスクは、終わるまで次の営業日へ繰り越します。</p>
   <div class="field" id="owner-box" hidden>
     <label for="owner">担当</label>
     <select id="owner"></select>
@@ -42,8 +45,14 @@
     <div class="field"><label for="f-urgency">急ぎ</label><select id="f-urgency"></select></div>
     <div class="field"><label for="f-repeat">繰り返し</label><select id="f-repeat"></select></div>
     <fieldset class="field" id="f-weekdays-box"><legend>曜日</legend><div id="f-weekdays" class="menu cols"></div></fieldset>
+    <div class="field" id="f-month-box"><label for="f-month">月</label><select id="f-month"></select></div>
+    <div class="field" id="f-kind-box"><label for="f-kind">日の決め方</label><select id="f-kind"></select></div>
     <div class="field" id="f-day-box"><label for="f-day">日（1〜31。その日が無い月は入りません）</label><input type="number" id="f-day" min="1" max="31"></div>
-    <label class="check"><input type="checkbox" id="f-business">会社の休みの日は入れない</label>
+    <div class="field" id="f-nth-box"><label for="f-nth" id="f-nth-label">何番目</label><select id="f-nth"></select></div>
+    <div class="field" id="f-wd-box"><label for="f-wd">曜日</label><select id="f-wd"></select></div>
+    <p class="sub" id="f-kind-hint"></p>
+    <div class="field" id="f-holiday-box"><label for="f-holiday">会社の休みの日に当たったら</label><select id="f-holiday"></select></div>
+    <div id="f-remind"></div>
     <label class="check"><input type="checkbox" id="f-hidden">自分と管理者だけに見せる（🔒）</label>
     <div class="field"><label for="f-start">始める日</label><input type="date" id="f-start"></div>
     <div class="field"><label for="f-end">終わる日（空なら決めない）</label><input type="date" id="f-end"></div>

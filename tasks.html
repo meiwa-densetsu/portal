@@ -10,21 +10,23 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=10">
-<script src="js/boot.js?v=10" defer></script>
-<script src="js/config.js?v=10" defer></script>
-<script src="js/store.js?v=10" defer></script>
-<script src="js/ui.js?v=10" defer></script>
-<script src="js/api.js?v=10" defer></script>
-<script src="js/guard.js?v=10" defer></script>
-<script src="gen/calc_task.js?v=10" defer></script>
-<script src="js/bulk.js?v=10" defer></script>
-<script src="js/grid_core.js?v=10" defer></script>
-<script src="js/grid.js?v=10" defer></script>
-<script src="js/task_view.js?v=10" defer></script>
-<script src="js/task_item.js?v=10" defer></script>
-<script src="js/task_dialogs.js?v=10" defer></script>
-<script src="js/page_tasks.js?v=10" defer></script>
+<link rel="stylesheet" href="css/style.css?v=11">
+<script src="js/boot.js?v=11" defer></script>
+<script src="js/config.js?v=11" defer></script>
+<script src="js/store.js?v=11" defer></script>
+<script src="js/ui.js?v=11" defer></script>
+<script src="js/api.js?v=11" defer></script>
+<script src="js/guard.js?v=11" defer></script>
+<script src="gen/calc_task.js?v=11" defer></script>
+<script src="js/remind.js?v=11" defer></script>
+<script src="js/bulk.js?v=11" defer></script>
+<script src="js/grid_core.js?v=11" defer></script>
+<script src="js/grid.js?v=11" defer></script>
+<script src="js/task_view.js?v=11" defer></script>
+<script src="js/task_item.js?v=11" defer></script>
+<script src="js/task_dialogs.js?v=11" defer></script>
+<script src="js/task_import.js?v=11" defer></script>
+<script src="js/page_tasks.js?v=11" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -79,6 +81,7 @@
       <button type="button" id="t-reopen" class="btn">未完了に戻す</button>
       <button type="button" id="t-defer" class="btn">先送り</button>
       <button type="button" id="t-due" class="btn">締め切り</button>
+      <button type="button" id="t-remind" class="btn">リマインダー</button>
       <button type="button" id="t-urgency" class="btn">急ぎ</button>
       <button type="button" id="t-hide" class="btn">隠す／見せる</button>
       <button type="button" id="t-note" class="btn">完了の一言</button>
@@ -119,11 +122,18 @@
   <div class="menu cols" id="add-tools">
     <button type="button" id="add-detail" class="btn">締め切り・急ぎを付けて足す</button>
     <button type="button" id="request-btn" class="btn">依頼する</button>
+    <button type="button" id="import-btn" class="btn">まとめて取り込む</button>
   </div>
   <div class="menu cols">
     <a class="btn" href="task_requests.html">依頼したもの</a>
     <a class="btn" href="task_recurring.html">定型タスク</a>
     <a class="btn" id="to-export" href="admin_task_export.html" hidden>Excel に出す</a>
+  </div>
+  <!-- リマインダーの通知（パソコンのポップアップ）。許可はボタンを押したときにだけ聞く -->
+  <div class="card" id="notify-box">
+    <h2>リマインダーの通知</h2>
+    <p id="notify-state" class="sub" role="status"></p>
+    <button type="button" id="notify-btn" class="btn" hidden>パソコンに通知を出す</button>
   </div>
   <a class="btn block" href="home.html">ホームへ戻る</a>
 </div>

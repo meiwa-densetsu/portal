@@ -7,6 +7,7 @@
  *   MP.taskDialogs.defer(o)    … 先送り先の日。o: { it, today, rules } → 'yyyy-MM-dd'（締め切りを過ぎるときは確かめる）
  *   MP.taskDialogs.due(o)      … 締め切り。o: { it, rules, today } → { due, dueTime }
  *   MP.taskDialogs.text(o)     … 1行の文字（一言・相談）。o: { title, label, value, max, hint, okLabel } → 文字（空もあり）
+ *   MP.taskDialogs.remind(o)   … リマインダー（v3 計画 3-5）。o: { it, rules } → { remindTime, remindEarly }
  *   MP.taskDialogs.handover(o) … 申し送り。o: { h?, departments, myDeptId, canAnyDept, date, rules } → { deptId, from, to, content } / { remove: true }
  */
 (function () {
@@ -72,6 +73,43 @@
     };
   }
 
+  /**
+   * リマインダーの欄（知らせる時刻と、早めの知らせ。v3 計画 3-5）。時刻は締め切りと同じ「時」「分」（5 分きざみ）。
+   * 返す値: { box, read() → { remindTime, remindEarly（無ければ null） } }
+   */
+  function remindFields(ui, id, time, early, earlyList) {
+    var h = ui.el('select', { id: id + '-rem-h', 'aria-label': '知らせる時' });
+    var m = ui.el('select', { id: id + '-rem-m', 'aria-label': '知らせる分' });
+    var e = ui.el('select', { id: id + '-rem-early' });
+    h.appendChild(ui.el('option', { value: '', text: '知らせない' }));
+    for (var i = 0; i < 24; i++) h.appendChild(ui.el('option', { value: ('0' + i).slice(-2), text: i + ' 時' }));
+    var mins = [];
+    for (var k = 0; k < 60; k += 5) mins.push(('0' + k).slice(-2));
+    var curM = time ? time.slice(3, 5) : '00';
+    if (mins.indexOf(curM) < 0) { mins.push(curM); mins.sort(); }
+    mins.forEach(function (x) { m.appendChild(ui.el('option', { value: x, text: x + ' 分' })); });
+    e.appendChild(ui.el('option', { value: '', text: '早めには知らせない' }));
+    (earlyList || []).forEach(function (n) { e.appendChild(ui.el('option', { value: String(n), text: MP.taskView.earlyText(n) + '前にも知らせる' })); });
+    h.value = time ? time.slice(0, 2) : '';
+    m.value = curM;
+    e.value = time && early ? String(early) : '';
+    var sync = function () { m.disabled = h.value === ''; e.disabled = h.value === ''; };
+    h.addEventListener('change', sync);
+    sync();
+    var box = ui.el('div', {}, [
+      ui.el('div', { class: 'field' }, [ui.el('label', { for: h.id, text: 'リマインダー（やる日のこの時刻に知らせる）' }), ui.el('div', { class: 'time-row' }, [h, m])]),
+      field(ui, '早めの知らせ', e),
+    ]);
+    return {
+      box: box,
+      read: function () {
+        var t = h.value === '' ? '' : h.value + ':' + m.value;
+        if (t !== '' && !CT.isTime(t)) return '知らせる時刻を選び直してください';
+        return { remindTime: t, remindEarly: t === '' || e.value === '' ? null : Number(e.value) };
+      },
+    };
+  }
+
   function add(o) {
     var ui = MP.ui;
     var id = 'tdlg' + (++seq);
@@ -102,12 +140,14 @@
     urgency.value = '通常';
     var hidden = ui.el('input', { type: 'checkbox', id: id + '-hidden' });
     var dueF = dueFields(ui, id, '', '');
+    var remF = remindFields(ui, id, '', null, o.rules.remindEarly);
     var body = ui.el('div', {}, [
       owner ? field(ui, '相手（依頼する人）', owner) : null,
       field(ui, 'やる日', date),
       field(ui, '内容（' + o.rules.contentMax + ' 字まで）', content),
       field(ui, '急ぎの度合い', urgency),
       dueF.box,
+      remF.box,
       ui.el('label', { class: 'check' }, [hidden, document.createTextNode(o.request ? '相手・自分・管理者だけに見せる 🔒' : '自分と管理者だけに見せる 🔒')]),
     ]);
     return ask(ui, { title: o.request ? '依頼する' : 'タスクを足す', body: body, okLabel: o.request ? '依頼を送る' : '足す' }, function () {
@@ -119,7 +159,11 @@
       if (/[\r\n]/.test(c)) return '内容に改行は入れられません';
       var du = dueF.read();
       if (typeof du === 'string') return du;
-      return { ownerId: ownerId, date: date.value, content: c, urgency: urgency.value, hidden: hidden.checked, due: du.due, dueTime: du.dueTime };
+      var rm = remF.read();
+      if (typeof rm === 'string') return rm;
+      var v = { ownerId: ownerId, date: date.value, content: c, urgency: urgency.value, hidden: hidden.checked, due: du.due, dueTime: du.dueTime };
+      if (rm.remindTime !== '') { v.remindTime = rm.remindTime; v.remindEarly = rm.remindEarly; } // 付けないときは送らない
+      return v;
     }).then(function (r) { return r && r.value ? r.value : null; });
   }
 
@@ -149,6 +193,16 @@
     var f = dueFields(ui, id, o.it.due, o.it.dueTime);
     var body = ui.el('div', {}, [ui.el('p', { class: 'dialog-body', text: '「' + o.it.content + '」' }), f.box]);
     return ask(ui, { title: '締め切り', body: body }, function () { return f.read(); })
+      .then(function (r) { return r && r.value ? r.value : null; });
+  }
+
+  function remind(o) {
+    var ui = MP.ui;
+    var id = 'tdlg' + (++seq);
+    var f = remindFields(ui, id, o.it.remindTime || '', o.it.remindEarly || null, o.rules.remindEarly);
+    var body = ui.el('div', {}, [ui.el('p', { class: 'dialog-body', text: '「' + o.it.content + '」' }), f.box,
+      ui.el('p', { class: 'sub', text: 'ポータルを開いている間に、画面の上の帯で知らせます（パソコンは通知も）。先送りすると、新しい日の同じ時刻に知らせます。' })]);
+    return ask(ui, { title: 'リマインダー', body: body }, function () { return f.read(); })
       .then(function (r) { return r && r.value ? r.value : null; });
   }
 
@@ -207,5 +261,5 @@
     });
   }
 
-  MP.taskDialogs = { add: add, defer: defer, due: due, text: text, handover: handover };
+  MP.taskDialogs = { add: add, defer: defer, due: due, remind: remind, remindFields: remindFields, text: text, handover: handover };
 })();

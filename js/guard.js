@@ -147,6 +147,8 @@
         if (o.admin && me.role !== ROLE_ADMIN) { MP.go('home.html'); return false; }
         renderTopbar(me, o);
         MP.ui.showFlash();
+        // リマインダー（計画 stage2-tasklist-v3-plan.md 3-4）: 本物の me を確かめた後に始める。見ている間・仮パスワードの間は始めない
+        if (MP.remind && !me.viewAs && !me.mustChangePassword) MP.remind.start(me);
         return true;
       }
       if (!o.load) {
