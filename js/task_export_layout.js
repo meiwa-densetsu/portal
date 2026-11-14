@@ -18,7 +18,17 @@
   function textOf(e) {
     var it = e.it;
     if (e.kind === 'mark') return '→' + md(it.to) + 'へ先送り ' + it.content;
-    return mark(it.urgency) + it.content + (it.requester ? '（依頼: ' + it.requesterName + '）' : '') + (it.state === '完了' ? ' ✓' : '');
+    // v2: 締め切りは文字で付ける（〆11/14・〆11/14 15:00。完了・取りやめには付けない）
+    var due = it.due && it.state === '未完了' ? ' 〆' + md(it.due) + (it.dueTime ? ' ' + Number(it.dueTime.slice(0, 2)) + ':' + it.dueTime.slice(3, 5) : '') : '';
+    return mark(it.urgency) + it.content + (it.requester ? '（依頼: ' + it.requesterName + '）' : '') + (it.state === '完了' ? ' ✓' : '') + due;
+  }
+  /** その日の申し送り（新しい申し送り〔部署の名前つき〕 → 前のメモ）を1つの文字に */
+  function memoOf(d, date) {
+    var out = (d.handovers || []).filter(function (h) { return h.from <= date && date <= h.to; })
+      .map(function (h) { return '【' + (h.deptName || '全員') + '】' + h.content; });
+    var memo = d.memos.filter(function (m) { return m.date === date; })[0];
+    if (memo && memo.content) out.push(memo.content);
+    return out.join('\n');
   }
   function fontOf(e) {
     if (e.kind === 'mark') return { color: COLOR.mark };
@@ -37,13 +47,14 @@
     merges.push([1, 1, 1, people.length + 2]);
     put(2, 1, '日付', { bold: true });
     people.forEach(function (p, i) { put(2, i + 2, p.name, { bold: true }); });
-    put(2, people.length + 2, 'メモ', { bold: true });
+    put(2, people.length + 2, '申し送り', { bold: true });
     var r = 3;
     for (var n = dayNumber(d.from); n <= dayNumber(d.to); n++) {
       var date = dateOf(n);
       var lists = people.map(function (p) {
         var items = d.items.filter(function (i) { return i.owner === p.employeeId && i.date === date; })
-          .sort(function (a, b) { return a.order - b.order; }).map(function (i) { return { kind: 'task', it: i }; });
+          .sort(function (a, b) { return a.order - b.order; }) // order はサーバーが並びの正本（CalcTask.sortDay）で付けた順位
+          .map(function (i) { return { kind: 'task', it: i }; });
         d.marks.filter(function (m) { return m.owner === p.employeeId && m.date === date; }).forEach(function (m) { items.push({ kind: 'mark', it: m }); });
         return items;
       });
@@ -52,8 +63,7 @@
       put(r, 1, md(date) + '（' + DOW[w] + '）', { bold: true, color: w === 0 ? 'FFC00000' : w === 6 ? 'FF1F4E79' : 'FF000000' });
       if (height > 1) merges.push([r, 1, r + height - 1, 1]);
       lists.forEach(function (l, i) { l.forEach(function (e, k) { put(r + k, i + 2, textOf(e), fontOf(e)); }); });
-      var memo = d.memos.filter(function (m) { return m.date === date; })[0];
-      put(r, people.length + 2, memo ? memo.content : '');
+      put(r, people.length + 2, memoOf(d, date));
       if (height > 1) merges.push([r, people.length + 2, r + height - 1, people.length + 2]);
       r += height;
     }

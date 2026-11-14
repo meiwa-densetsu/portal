@@ -10,18 +10,21 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=8">
-<script src="js/boot.js?v=8" defer></script>
-<script src="js/config.js?v=8" defer></script>
-<script src="js/store.js?v=8" defer></script>
-<script src="js/ui.js?v=8" defer></script>
-<script src="js/api.js?v=8" defer></script>
-<script src="js/guard.js?v=8" defer></script>
-<script src="gen/calc_task.js?v=8" defer></script>
-<script src="js/bulk.js?v=8" defer></script>
-<script src="js/grid_core.js?v=8" defer></script>
-<script src="js/grid.js?v=8" defer></script>
-<script src="js/page_tasks.js?v=8" defer></script>
+<link rel="stylesheet" href="css/style.css?v=9">
+<script src="js/boot.js?v=9" defer></script>
+<script src="js/config.js?v=9" defer></script>
+<script src="js/store.js?v=9" defer></script>
+<script src="js/ui.js?v=9" defer></script>
+<script src="js/api.js?v=9" defer></script>
+<script src="js/guard.js?v=9" defer></script>
+<script src="gen/calc_task.js?v=9" defer></script>
+<script src="js/bulk.js?v=9" defer></script>
+<script src="js/grid_core.js?v=9" defer></script>
+<script src="js/grid.js?v=9" defer></script>
+<script src="js/task_view.js?v=9" defer></script>
+<script src="js/task_item.js?v=9" defer></script>
+<script src="js/task_dialogs.js?v=9" defer></script>
+<script src="js/page_tasks.js?v=9" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -36,6 +39,8 @@
       <h2 id="month-label" class="period-label"></h2>
       <button type="button" id="next" class="btn">次の月</button>
     </div>
+    <!-- 部署の切り替え（見る範囲を絞るだけ。権限ではない） -->
+    <div id="dept-bar" class="chip-bar" role="group" aria-label="見る部署"></div>
     <div class="menu cols">
       <button type="button" id="to-list" class="btn">日付ごとの一覧</button>
       <button type="button" id="to-table" class="btn">月の表</button>
@@ -45,35 +50,62 @@
     <div id="failed" class="msg warn" hidden></div>
   </div>
 
-  <!-- パソコン: 月の表（列 = 担当・行 = 日付ごとのタスク） -->
+  <!-- 申し送り（部署の全員に共有する連絡。選んでいる日にかかるもの） -->
+  <div class="card" id="handover-box">
+    <h2 id="handover-title">申し送り</h2>
+    <ul id="handovers" class="list"></ul>
+    <button type="button" id="handover-add" class="btn">申し送りを書く</button>
+  </div>
+
+  <!-- 依頼したタスクの知らせ（完了・相談）。確かめたら ✕ で消す -->
+  <div class="card notice-card" id="notice-box" hidden>
+    <h2>依頼したタスクの知らせ</h2>
+    <ul id="notices" class="list"></ul>
+    <p id="notice-more" class="sub" hidden></p>
+  </div>
+
+  <!-- 部署のまとめ（部長・管理者だけ） -->
+  <div class="card" id="summary-box" hidden>
+    <h2 id="summary-title">部署のまとめ</h2>
+    <div class="manager-scroll"><table id="summary" class="summary-table"></table></div>
+  </div>
+
+  <!-- パソコン: 月の表（列 = 番号・担当・申し送り。行 = 日付ごとのタスク。1 マス = 1 件） -->
   <section id="table-pane" hidden>
-    <p class="sub">セルを選んで打つと、新しいタスク・内容の直しになります（Excel からの貼り付けもできます）。状態などは、セルを選んでから下のボタンで。</p>
+    <p class="sub">セルを選んで打つと、新しいタスク・内容の直しになります（Excel からの貼り付けもできます）。状態などは、セルを選んでから下のボタンで。番号は今の並びの番号です（並びが変わると変わります）。</p>
     <div class="menu cols grid-tools" id="task-tools">
       <button type="button" id="t-complete" class="btn">完了</button>
       <button type="button" id="t-reopen" class="btn">未完了に戻す</button>
       <button type="button" id="t-defer" class="btn">先送り</button>
-      <button type="button" id="t-cancel" class="btn">取りやめ</button>
-      <button type="button" id="t-uncancel" class="btn">取りやめから戻す</button>
+      <button type="button" id="t-due" class="btn">締め切り</button>
       <button type="button" id="t-urgency" class="btn">急ぎ</button>
       <button type="button" id="t-hide" class="btn">隠す／見せる</button>
+      <button type="button" id="t-note" class="btn">完了の一言</button>
+      <button type="button" id="t-consult" class="btn">相談する</button>
+      <button type="button" id="t-cancel" class="btn">取りやめ</button>
+      <button type="button" id="t-uncancel" class="btn">取りやめから戻す</button>
       <button type="button" id="t-up" class="btn">上へ</button>
       <button type="button" id="t-down" class="btn">下へ</button>
       <button type="button" id="t-delete" class="btn danger">消す</button>
+      <button type="button" id="t-today" class="btn">今日へ</button>
     </div>
-    <p id="sel-info" class="sub" aria-live="polite"></p>
-    <div id="grid" class="grid-box"></div>
+    <p id="sel-info" class="selbar" aria-live="polite"></p>
+    <div id="grid" class="grid-box task-grid"></div>
   </section>
 
-  <!-- スマホ: 日付ごとの一覧 -->
+  <!-- スマホ: 日付ごとの一覧（1 件 1 行。自分の欄を先に、部署のほかの人の欄を下に） -->
   <section id="list-pane" hidden>
     <div class="period-nav">
       <button type="button" id="day-prev" class="btn">前の日</button>
       <h2 id="day-label" class="period-label"></h2>
       <button type="button" id="day-next" class="btn">次の日</button>
     </div>
-    <label class="check"><input type="checkbox" id="show-all">全員の分を見る</label>
-    <div id="day-memo" class="card"></div>
-    <ul id="day-list" class="list card"></ul>
+    <div class="menu cols">
+      <button type="button" id="day-today" class="btn">今日へ</button>
+      <button type="button" id="text-mode" class="btn"></button>
+    </div>
+    <p class="sub">□ を押すと完了です。行を押すと、先送り・締め切りなどが出ます。番号は今の並びの番号です（並びが変わると変わります）。</p>
+    <div id="day-list"></div>
     <div class="card" id="add-box">
       <div class="field">
         <label for="add-content">自分のタスクを足す</label>
@@ -83,6 +115,10 @@
     </div>
   </section>
 
+  <div class="menu cols" id="add-tools">
+    <button type="button" id="add-detail" class="btn">締め切り・急ぎを付けて足す</button>
+    <button type="button" id="request-btn" class="btn">依頼する</button>
+  </div>
   <div class="menu cols">
     <a class="btn" href="task_requests.html">依頼したもの</a>
     <a class="btn" href="task_recurring.html">定型タスク</a>
@@ -91,5 +127,12 @@
   <a class="btn block" href="home.html">ホームへ戻る</a>
 </div>
 </main>
+
+<!-- 完了にした直後に出す帯（押し間違えを取り消す） -->
+<div id="undo-bar" class="undo-bar" role="status" hidden>
+  <span id="undo-text"></span>
+  <button type="button" id="undo-btn" class="btn">元に戻す</button>
+  <button type="button" id="undo-note" class="btn">一言を足す</button>
+</div>
 </body>
 </html>

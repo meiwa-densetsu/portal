@@ -10,7 +10,12 @@
  *   nextBusinessDay(date, isHoliday)    … 次の営業日（isHoliday(date) → true / false。分からない日は呼ぶ側が土日で答える）
  *   autoDeferTarget(date, today, isHoliday) … 自動の先送りの先と、飛ばした営業日の数（2-4）
  *   recurringDates(rule, from, to, isHoliday) … 定型タスクの当てはまる日（2-5）
- *   sortTasks(list)                     … 表示の並び（並び → 作成の順。急ぎの印は文字で出す）
+ *   sortDay(list)                       … 表示の並びの正本（v2 計画 2-3: 状態の組 → 急ぎ → 締め切り → 並び → タスクID）
+ *   groupKey(task)                      … 並べ替えの「群」の鍵（同じ群の中でだけ 上へ・下へ ができる）
+ *   dueLevel(task, nowDate, nowMin, soonDays) … 締め切りの段階（v2 計画 2-2）: ''・normal・soon・over
+ *   dueLabel(task, nowDate, nowMin, soonDays) … 締め切りの印の文字（〆11/20・〆明日・〆過ぎ 11/13）
+ *   taskToday(date, minutes, startMin)  … タスクの今日（v2 計画 2-6。startMin より前の時刻は前の日）
+ * v2 の計画: docs/plans/stage2-tasklist-v2-plan.md
  */
 var CalcTask = (function () {
   'use strict';
@@ -131,11 +136,56 @@ var CalcTask = (function () {
     return out;
   }
 
-  /** 表示の並び: 並び（数）→ タスクID の順 */
-  function sortTasks(list) {
-    return list.slice().sort(function (a, b) {
-      return (Number(a.order) || 0) - (Number(b.order) || 0) || (str_(a.taskId) < str_(b.taskId) ? -1 : str_(a.taskId) > str_(b.taskId) ? 1 : 0);
-    });
+  function isTime(text) { return typeof text === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(text); }
+  function minutesOf(time) { return Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5)); }
+
+  /**
+   * 並べ替えの「群」の鍵（v2 計画 2-3）: 状態の組（未完了／完了・取りやめ）・急ぎの度合い・締め切り日・締め切りの時刻。
+   * 文字として比べた順が、そのまま表示の順になる（締め切り無しは後・時刻無しはその日の終わり）
+   */
+  function groupKey(task) {
+    var open = task.state === STATE.OPEN ? '0' : '1';
+    var u = URGENCY.indexOf(task.urgency);
+    var due = isDate(task.due) ? task.due : '9999-99-99';
+    var time = isDate(task.due) && isTime(task.dueTime) ? task.dueTime : '99:99';
+    return open + '|' + (u < 0 ? URGENCY.length - 1 : u) + '|' + due + '|' + time;
+  }
+
+  /** 表示の並びの正本: 群の鍵 → 並び（数。画面では rank）→ タスクID */
+  function sortDay(list) {
+    return list.map(function (t) { return { t: t, k: groupKey(t) }; }).sort(function (a, b) {
+      if (a.k !== b.k) return a.k < b.k ? -1 : 1;
+      return (Number(a.t.order) || 0) - (Number(b.t.order) || 0) || (str_(a.t.taskId) < str_(b.t.taskId) ? -1 : str_(a.t.taskId) > str_(b.t.taskId) ? 1 : 0);
+    }).map(function (x) { return x.t; });
+  }
+
+  /**
+   * 締め切りの段階（v2 計画 2-2）。nowDate・nowMin は本当の今（日本時間の日付と、0時からの分）。
+   * 完了・取りやめ・締め切り無し → ''。過ぎた → over（時刻があればその時刻を過ぎたら。無ければその日が終わったら）。
+   * 締め切り日が今日から soonDays 日以内 → soon。それ以外 → normal
+   */
+  function dueLevel(task, nowDate, nowMin, soonDays) {
+    if (!task || task.state !== STATE.OPEN || !isDate(task.due) || !isDate(nowDate)) return '';
+    if (nowDate > task.due) return 'over';
+    if (nowDate === task.due && isTime(task.dueTime) && Number(nowMin) > minutesOf(task.dueTime)) return 'over';
+    return dayNumber(task.due) - dayNumber(nowDate) <= Number(soonDays) ? 'soon' : 'normal';
+  }
+
+  function md_(date) { return Number(date.slice(5, 7)) + '/' + Number(date.slice(8, 10)); }
+
+  /** 締め切りの印の文字。段階が '' なら '' */
+  function dueLabel(task, nowDate, nowMin, soonDays) {
+    var lv = dueLevel(task, nowDate, nowMin, soonDays);
+    if (!lv) return '';
+    var time = isTime(task.dueTime) ? ' ' + Number(task.dueTime.slice(0, 2)) + ':' + task.dueTime.slice(3, 5) : '';
+    if (lv === 'over') return '〆過ぎ ' + md_(task.due) + time;
+    var diff = dayNumber(task.due) - dayNumber(nowDate);
+    return '〆' + (diff === 0 ? '今日' : diff === 1 ? '明日' : md_(task.due)) + time;
+  }
+
+  /** タスクの今日（v2 計画 2-6）。date・minutes は日本時間の今。startMin（例 360 = 6:00）より前は前の日 */
+  function taskToday(date, minutes, startMin) {
+    return Number(minutes) < Number(startMin) ? addDays(date, -1) : date;
   }
 
   /** 急ぎの印（色だけに頼らない文字。計画 2-7） */
@@ -151,6 +201,7 @@ var CalcTask = (function () {
     isDate: isDate, addDays: addDays, dowOf: dowOf, dayNumber: dayNumber, dateOf: dateOf,
     can: can, addKind: addKind, nextState: nextState, weekendHoliday: weekendHoliday,
     nextBusinessDay: nextBusinessDay, autoDeferTarget: autoDeferTarget, recurringDates: recurringDates,
-    sortTasks: sortTasks, urgencyMark: urgencyMark, reportText: reportText,
+    sortDay: sortDay, groupKey: groupKey, dueLevel: dueLevel, dueLabel: dueLabel, taskToday: taskToday, isTime: isTime,
+    urgencyMark: urgencyMark, reportText: reportText,
   };
 })();
