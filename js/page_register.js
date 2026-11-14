@@ -11,7 +11,7 @@
       ev.preventDefault();
       ui.pageMessage('');
       var code = input.value;
-      if (code.replace(/[\s\-]/g, '').length !== 8) { ui.fieldError(input, '8桁のコードを入れてください'); return; }
+      if (code.replace(/[\s\-]/g, '').length !== 12) { ui.fieldError(input, '12桁のコードを入れてください'); return; }
       ui.fieldError(input, '');
       ui.run(function () {
         return MP.api.call('auth.deviceCodeInfo', { code: code }).then(function (res) {

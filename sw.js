@@ -9,7 +9,7 @@
  */
 'use strict';
 
-var VERSION = '12'; // web/js/config.js の APP_VERSION と同じ値（tests/web_static_test.js が確かめる）
+var VERSION = '13'; // web/js/config.js の APP_VERSION と同じ値（tests/web_static_test.js が確かめる）
 var PREFIX = 'portal-v';
 var CACHE = PREFIX + VERSION;
 var PAGE_PATH = /(?:\.html|\/)$/;

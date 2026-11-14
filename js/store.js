@@ -116,7 +116,7 @@
     /** タスクリストの今月の控え（表示用。同 1-3）。今の token・控えの me の社員のものだけ返す */
     taskView: function () {
       var me = MP.store.me();
-      if (!me) return null;
+      if (!me || MP.store.tokenShared()) return null; // 共有のログイン（他の人も使う端末）では、控えを使わない（前の人の内容を次の人に見せない。仕上げの計画 第3章 C3）
       var o = parse(get(S(), K.taskView));
       return o && o.k === mark(MP.store.token()) && o.id === me.employeeId && o.data && typeof o.data === 'object' ? o.data : null;
     },
@@ -124,7 +124,7 @@
     setTaskView: function (employeeId, data) {
       if (sealed) return;
       var me = MP.store.me();
-      if (!me || me.employeeId !== employeeId) { wipe(S(), K.taskView); return; }
+      if (!me || me.employeeId !== employeeId || MP.store.tokenShared()) { wipe(S(), K.taskView); return; } // 共有のログインでは残さない
       var text;
       try { text = JSON.stringify({ k: mark(MP.store.token()), id: employeeId, data: data }); } catch (e) { text = ''; }
       if (!text || text.length > VIEW_MAX_CHARS || !set(S(), K.taskView, text)) wipe(S(), K.taskView);

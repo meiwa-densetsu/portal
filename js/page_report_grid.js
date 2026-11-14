@@ -111,22 +111,26 @@
 
     /**
      * 完了したタスクを、施工内容が空の勤務に入れる（タスクリストの計画 2-9。1日ずつの画面と同じ決まり）。入れた日の数を返す。
-     * 入れる先: 日勤の出社があれば昼、無くて夜勤の出社があれば夜、時刻が無ければ昼。その欄が空のときだけ。保存は本人が押す
+     * 入れる先: 日勤の出社があれば昼、無くて夜勤の出社があれば夜、時刻が無ければ昼。その欄が空のときだけ。保存は本人が押す。
+     * 入れるのは、施工内容の字数に入る分だけ（CalcTask.reportFill。1 日ずつの画面と同じ計算）。返す値: { days: 入れた日の数, cutDays: そのうち一部だけの日の数 }
      */
     function fillFromTasks() {
-      if (!data.completedTasks || MP.guard.viewing()) return 0;
-      if (data.closing && data.closing.closed) return 0; // 締めた期間は入れない（管理者本人でも）
-      var n = 0;
+      var out = { days: 0, cutDays: 0 };
+      if (!data.completedTasks || MP.guard.viewing()) return out;
+      if (data.closing && data.closing.closed) return out; // 締めた期間は入れない（管理者本人でも）
       rows.forEach(function (x, i) {
         var texts = data.completedTasks[x.day.date];
         if (!texts || !texts.length) return;
         var cur = x.cur;
         var col = cur['昼_出社'] ? '昼_施工内容' : cur['夜_出社'] ? '夜_施工内容' : (cur['昼_開始'] || cur['昼_終了'] || cur['昼_退社'] || cur['夜_開始'] || cur['夜_終了'] || cur['夜_退社']) ? null : '昼_施工内容';
         if (!col || String(cur[col]).trim() !== '' || !editable(i, COLS.indexOf(col))) return;
-        cur[col] = texts.filter(function (t) { return t; }).join('、');
-        n++;
+        var fill = window.CalcTask.reportFill(texts, data.rules.REPORT.CONTENT_MAX, CR.textLength);
+        if (fill.text === '') return;
+        cur[col] = fill.text;
+        out.days++;
+        if (fill.cut) out.cutDays++;
       });
-      return n;
+      return out;
     }
 
     function editable(i, c) {
@@ -260,7 +264,7 @@
         });
         var filled = fillFromTasks();
         ui.$('view').hidden = false;
-        if (filled) ui.pageMessage('完了したタスクから ' + filled + ' 日分の施工内容を入れました（黄色の行）。確かめて保存してください', 'info');
+        if (filled.days) ui.pageMessage('完了したタスクから ' + filled.days + ' 日分の施工内容を入れました（黄色の行）' + (filled.cutDays ? '。うち ' + filled.cutDays + ' 日分は、長いため一部だけ' : '') + '。確かめて保存してください', 'info');
         renderHead();
         buildColumns();
         analyzeAll();

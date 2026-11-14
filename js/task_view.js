@@ -54,13 +54,17 @@
   }
 
   /** リマインダーの印（⏰15:00）。v3 計画 3-5。担当と管理者にだけ値が来る */
-  function remindMark(it) { return '⏰' + Number(it.remindTime.slice(0, 2)) + ':' + it.remindTime.slice(3, 5); }
+  /** タスクの今日の切り替わり（設定。Node のテストなど設定の無い所では、ずらさない） */
+  function startMin() { return root && root.MP && root.MP.config ? root.MP.config.TASK_DAY_START_MIN : 0; }
+  /** 時刻の言い方（8:30。切り替わりより前は次の日の時刻なので「翌3:00」。仕上げの計画 第4章） */
+  function remindClock(time) { return ct().remindClock(time, startMin()); }
+  function remindMark(it) { return '⏰' + remindClock(it.remindTime); }
   /** 早めの分の言い方（15 分・2 時間） */
   function earlyText(n) { return n >= 60 && n % 60 === 0 ? (n / 60) + ' 時間' : n + ' 分'; }
   /** 全文の中のリマインダー（リマインダー 15:00（15 分前にも））。無ければ '' */
   function remindText(it) {
     if (!it.remindTime) return '';
-    return 'リマインダー ' + Number(it.remindTime.slice(0, 2)) + ':' + it.remindTime.slice(3, 5) + (it.remindEarly ? '（' + earlyText(it.remindEarly) + '前にも）' : '');
+    return 'リマインダー ' + remindClock(it.remindTime) + (it.remindEarly ? '（' + earlyText(it.remindEarly) + '前にも）' : '');
   }
 
   function stateText(it) { return it.state === '完了' ? ' ✓完了' : it.state === '取りやめ' ? '（取りやめ）' : ''; }
@@ -143,7 +147,7 @@
   }
 
   var api = { ALL: ALL, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
-    people: people, handovers: handovers, summary: summary, moveArgs: moveArgs, remindMark: remindMark, remindText: remindText, earlyText: earlyText };
+    people: people, handovers: handovers, summary: summary, moveArgs: moveArgs, remindMark: remindMark, remindText: remindText, earlyText: earlyText, remindClock: remindClock };
   if (root) { root.MP = root.MP || {}; root.MP.taskView = api; }
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : null);

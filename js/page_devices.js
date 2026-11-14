@@ -12,7 +12,7 @@
 
       function showCode(d) {
         var c = String(d.code);
-        $('code-value').textContent = c.slice(0, 4) + '-' + c.slice(4);
+        $('code-value').textContent = (c.match(/.{1,4}/g) || [c]).join('-'); // 12 桁を 4 桁ずつ（ABCD-EFGH-JKMN）
         $('code-info').textContent = '「' + d.deviceName + '」用・' + ui.fmtTime(d.expiresAt) + ' まで（10分）・1回だけ使えます';
         $('app-url').textContent = window.location.href.replace(/[^/]*$/, '');
         $('steps-normal').hidden = homeSteps;

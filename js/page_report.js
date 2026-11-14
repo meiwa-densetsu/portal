@@ -131,7 +131,7 @@
         dirty = false;
         var filled = fillFromTasks();
         renderForm();
-        if (filled) ui.pageMessage('完了したタスクから施工内容を入れました。確かめて保存してください', 'info');
+        if (filled) ui.pageMessage('完了したタスクから施工内容を入れました' + (filled.cut ? '（長いため一部だけ）' : '') + '。確かめて保存してください', 'info');
         renderList();
         ui.$('form-pane').hidden = false;
         ui.$('form-pane').scrollIntoView({ block: 'start' });
@@ -141,12 +141,13 @@
     /**
      * 完了したタスクを施工内容に入れる（タスクリストの計画 2-9）。入れる先は1つ: 日勤の勤務があれば日勤、無くて夜勤があれば夜勤、勤務が無ければ勤務1。
      * その施工内容が空のときだけ（別の勤務には回さない）。画面の上だけで、保存は本人が押す。
-     * サーバーは本人が本人の日報を開いたときだけ completedTasks を返す。締めた期間・計算できない日・社員の画面を見ているときは入れない
+     * サーバーは本人が本人の日報を開いたときだけ completedTasks を返す。締めた期間・計算できない日・社員の画面を見ているときは入れない。
+     * 入れるのは、施工内容の字数に入る分だけ（CalcTask.reportFill。仕上げの計画 第1章）。返す値: 入れなければ null、入れたら { cut: 入れなかった・切ったものがあるか }
      */
     function fillFromTasks() {
       var texts = data.completedTasks ? data.completedTasks[current.date] : null;
-      if (!texts || !texts.length || !data.editable || !current.canCalc || MP.guard.viewing()) return false;
-      if (data.closing && data.closing.closed) return false; // 締めた期間は入れない（管理者本人でも。Codex 実装1回目 medium）
+      if (!texts || !texts.length || !data.editable || !current.canCalc || MP.guard.viewing()) return null;
+      if (data.closing && data.closing.closed) return null; // 締めた期間は入れない（管理者本人でも。Codex 実装1回目 medium）
       var target = -1;
       ['day', 'night'].some(function (kind) {
         for (var i = 0; i < entries.length; i++) {
@@ -156,14 +157,16 @@
       });
       if (target < 0) {
         var hasTimes = entries.some(function (e) { return e.arrive || e.start || e.end || e.leave; });
-        if (hasTimes) return false; // 時刻はあるが日勤・夜勤に分けられない（入力の途中）ときは入れない
+        if (hasTimes) return null; // 時刻はあるが日勤・夜勤に分けられない（入力の途中）ときは入れない
         target = 0;
       }
       var e = entries[target];
-      if (String(e.content || '').trim() !== '') return false;
-      e.content = texts.filter(function (t) { return t; }).join('、');
+      if (String(e.content || '').trim() !== '') return null;
+      var fill = window.CalcTask.reportFill(texts, data.rules.REPORT.CONTENT_MAX, CR.textLength);
+      if (fill.text === '') return null;
+      e.content = fill.text;
       dirty = true;
-      return true;
+      return { cut: fill.cut };
     }
 
     function renderForm() {

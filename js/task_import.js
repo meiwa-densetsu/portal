@@ -46,6 +46,9 @@
       if (c <= 31 || c === 127 || (c >= 0x200B && c <= 0x200F) || (c >= 0x202A && c <= 0x202E) || c === 0x2028 || c === 0x2029 || (c >= 0x2066 && c <= 0x2069) || c === 0xFEFF) continue;
       out += s.charAt(i);
     }
+    // 文字の決まりの正本（CalcTask.stripHidden。サーバーが断る文字と同じもの）も通す。上の一覧は、正本が無い所（Node の試験）のための控え
+    var T = (root && root.CalcTask) || (typeof globalThis !== 'undefined' ? globalThis.CalcTask : null);
+    if (T && T.stripHidden) out = T.stripHidden(out, false);
     return trimAll(out);
   }
 

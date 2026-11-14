@@ -43,8 +43,8 @@
     function viewing() { return MP.guard.viewing(); }
     /** 結果が分からない失敗か（通信が切れた・混み合い・途中で止まった。画面を離れるときにブラウザが打ち切った通信も NETWORK になる） */
     function unknownResult(res) { return res.code === 'NETWORK' || res.code === 'BUSY' || res.code === 'INTERNAL'; }
-    /** 開く月の初めの見当（端末の時計で、朝 6 時より前は前の日。本当の「タスクの今日」はサーバーの答えで決め直す） */
-    function guessToday() { return new Date(Date.now() + 9 * 3600000 - 6 * 3600000).toISOString().slice(0, 10); }
+    /** 開く月の初めの見当（端末の時計で、タスクの今日の切り替わり〔設定 TASK_DAY_START_MIN。朝 6 時〕より前は前の日。本当の「タスクの今日」はサーバーの答えで決め直す） */
+    function guessToday() { return new Date(Date.now() + 9 * 3600000 - MP.config.TASK_DAY_START_MIN * 60000).toISOString().slice(0, 10); }
     function md(d) { return Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)); }
     function dayLabel(d) { return Number(d.slice(5, 7)) + '月' + Number(d.slice(8, 10)) + '日（' + DOW[CT.dowOf(d)] + '）' + (data && d === data.taskToday ? ' 今日' : ''); }
     function put(key, v) { try { window.localStorage.setItem(key, v); } catch (e) { /* 覚えられなくても動く */ } }

@@ -93,11 +93,17 @@
     h.value = time ? time.slice(0, 2) : '';
     m.value = curM;
     e.value = time && early ? String(early) : '';
-    var sync = function () { m.disabled = h.value === ''; e.disabled = h.value === ''; };
+    // 朝の切り替わり（6:00）より前の時刻は、次の日の朝として知らせる（タスクの「◯日」は 6:00 から次の日の 6:00 まで。仕上げの計画 第4章）
+    var next = ui.el('p', { id: id + '-rem-next', class: 'hint', text: '朝 ' + Math.floor(MP.config.TASK_DAY_START_MIN / 60) + ':00 より前の時刻は、次の日の朝として知らせます' });
+    var sync = function () {
+      m.disabled = h.value === ''; e.disabled = h.value === '';
+      next.hidden = h.value === '' || !CT.remindNextDay(h.value + ':' + m.value, MP.config.TASK_DAY_START_MIN);
+    };
     h.addEventListener('change', sync);
+    m.addEventListener('change', sync);
     sync();
     var box = ui.el('div', {}, [
-      ui.el('div', { class: 'field' }, [ui.el('label', { for: h.id, text: 'リマインダー（やる日のこの時刻に知らせる）' }), ui.el('div', { class: 'time-row' }, [h, m])]),
+      ui.el('div', { class: 'field' }, [ui.el('label', { for: h.id, text: 'リマインダー（やる日のこの時刻に知らせる）' }), ui.el('div', { class: 'time-row' }, [h, m]), next]),
       field(ui, '早めの知らせ', e),
     ]);
     return {

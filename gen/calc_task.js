@@ -284,30 +284,50 @@ var CalcTask = (function () {
     return Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)), Number(time.slice(0, 2)) - 9, Number(time.slice(3, 5)));
   }
 
-  /** リマインダーの時刻（v3 計画 3-1）: { main, early（早めの知らせ。無ければ null） }。形が違えば null */
-  function remindAt(item) {
+  /**
+   * その時刻が「次の日の時刻」か（仕上げの計画 第4章）。タスクの「◯日」は、その日の startMin（例 360 = 6:00）から次の日の startMin まで。
+   * だから startMin より前の時刻は、次の日の時刻として読む。startMin が無い・数でないときは、ずらさない
+   */
+  function remindNextDay(time, startMin) {
+    var s = Number(startMin);
+    return isTime(time) && s > 0 && minutesOf(time) < s;
+  }
+
+  /** リマインダーの時刻の言い方（「8:30」・次の日の時刻は「翌3:00」）。形が違えば '' */
+  function remindClock(time, startMin) {
+    if (!isTime(time)) return '';
+    return (remindNextDay(time, startMin) ? '翌' : '') + Number(time.slice(0, 2)) + ':' + time.slice(3, 5);
+  }
+
+  /** リマインダーの時刻（v3 計画 3-1）: { main, early（早めの知らせ。無ければ null） }。形が違えば null。startMin より前の時刻は次の日 */
+  function remindAt(item, startMin) {
     if (!item || !isDate(item.date) || !isTime(item.time)) return null;
-    var main = jstMs(item.date, item.time);
+    var main = jstMs(remindNextDay(item.time, startMin) ? addDays(item.date, 1) : item.date, item.time);
     var e = Number(item.early);
     return { main: main, early: e > 0 ? main - e * 60000 : null };
   }
 
-  /** 知らせ済みの印の鍵（タスクの日付と時刻で作る。出した日では作らない。v3 計画 3-4） */
-  function remindKey(item, kind) { return str_(item.taskId) + '|' + item.date + '|' + item.time + '|' + kind; }
+  /**
+   * 知らせ済みの印の鍵（タスクの日付と時刻で作る。出した日では作らない。v3 計画 3-4）。
+   * 次の日にずらした時刻は、後ろに |n を足す（前の版で付いた印〔ずらす前の時刻で付けたもの〕を引き継がない）
+   */
+  function remindKey(item, kind, startMin) {
+    return str_(item.taskId) + '|' + item.date + '|' + item.time + '|' + kind + (remindNextDay(item.time, startMin) ? '|n' : '');
+  }
 
   /**
-   * 今、知らせるもの（v3 計画 3-4）。items: [{ taskId, date, time, early, … }]、nowMs: サーバーの今、done: { 鍵: 真 }、lateMaxMin: 過ぎてから出す限り。
+   * 今、知らせるもの（v3 計画 3-4）。items: [{ taskId, date, time, early, … }]、nowMs: サーバーの今、done: { 鍵: 真 }、lateMaxMin: 過ぎてから出す限り、startMin: タスクの今日の切り替わり。
    * 返す値: { fire: [{ key, kind, item, late（時刻からの遅れの分）, left（早めの知らせ: 本番までの分） }], expire: [もう出さない鍵] }
    *   早めの知らせ … 早めの時刻 〜 本番の時刻の前。本番の時刻を過ぎたら出さない（expire）
    *   時刻の知らせ … 本番の時刻 〜 lateMaxMin 分後。それより後は出さない（expire）
    */
-  function remindDue(items, nowMs, done, lateMaxMin) {
+  function remindDue(items, nowMs, done, lateMaxMin, startMin) {
     var fire = [], expire = [];
     var seen = done || {};
     (items || []).forEach(function (it) {
-      var at = remindAt(it);
+      var at = remindAt(it, startMin);
       if (!at) return;
-      var kM = remindKey(it, REMIND_KIND.MAIN), kE = remindKey(it, REMIND_KIND.EARLY);
+      var kM = remindKey(it, REMIND_KIND.MAIN, startMin), kE = remindKey(it, REMIND_KIND.EARLY, startMin);
       if (at.early !== null && !seen[kE]) {
         if (nowMs >= at.main) expire.push(kE);
         else if (nowMs >= at.early) fire.push({ key: kE, kind: REMIND_KIND.EARLY, item: it, late: Math.floor((nowMs - at.early) / 60000), left: Math.ceil((at.main - nowMs) / 60000) });
@@ -329,6 +349,69 @@ var CalcTask = (function () {
     return (contents || []).map(str_).filter(function (s) { return s !== ''; }).join('、');
   }
 
+  /**
+   * 完了したタスクの内容を、日報の施工内容に入る分だけ入れる（仕上げの計画 第1章）。返す値: { text, cut（入れなかった・切ったものがある） }
+   * 先頭から順に、「、」でつないだ長さが max 以下のあいだ丸ごと足す。入らないものが出たらそこで止める（順番を変えない）。
+   * 1 件目から入らないときは、1 件目を max 字までに切って入れる。lengthOf: 長さの数え方（見た目の 1 文字。CalcReport.textLength）
+   */
+  function reportFill(contents, max, lengthOf) {
+    var len = typeof lengthOf === 'function' ? lengthOf : function (s) { return Array.from(String(s)).length; };
+    var list = (contents || []).map(str_).map(function (s) { return s.replace(/^[\s\u3000]+|[\s\u3000]+$/g, ''); }).filter(function (s) { return s !== ''; });
+    var m = Math.floor(Number(max));
+    if (!list.length) return { text: '', cut: false };
+    if (!(m > 0)) return { text: '', cut: true };
+    var text = '', n = 0;
+    for (; n < list.length; n++) {
+      var next = text === '' ? list[n] : text + '、' + list[n];
+      if (len(next) > m) break;
+      text = next;
+    }
+    if (n === list.length) return { text: text, cut: false };
+    if (n === 0) {
+      var chars = Array.from(list[0]);
+      for (var k = 0; k < chars.length; k++) {
+        if (len(text + chars[k]) > m) break;
+        text += chars[k];
+      }
+    }
+    return { text: text, cut: true };
+  }
+
+  /**
+   * 目に見えない文字か（文字の番号。UTF-16 の 1 つ分）。
+   *   制御文字（0〜31・127・0x80〜0x9F）／ソフトハイフン（0xAD）／文字の向きを変える文字（0x061C・0x200E・0x200F・0x202A〜0x202E・0x2066〜0x2069）／
+   *   ゼロ幅・つなぎの文字（0x180E・0x200B〜0x200D・0x2060〜0x2064・0xFEFF）／古い書式の文字（0x206A〜0x206F）／行・段落の区切り（0x2028・0x2029）／
+   *   注釈の印（0xFFF9〜0xFFFB）／タグの文字（U+E0000〜U+E007F。UTF-16 では 0xDB40 に 0xDC00〜0xDC7F が続く。前の半分 0xDB40 を断る）
+   * 絵文字に使う異体字セレクタ（0xFE0F など）は断らない
+   */
+  function hiddenCode_(c) {
+    return c <= 31 || (c >= 127 && c <= 0x9F) || c === 0xAD || c === 0x061C || c === 0x180E ||
+      (c >= 0x200B && c <= 0x200F) || (c >= 0x202A && c <= 0x202E) || c === 0x2028 || c === 0x2029 ||
+      (c >= 0x2060 && c <= 0x2064) || (c >= 0x2066 && c <= 0x206F) || c === 0xFEFF || (c >= 0xFFF9 && c <= 0xFFFB) || c === 0xDB40;
+  }
+
+  /** 目に見えない文字が入っているか（見た目を偽れないように断る。セキュリティ監査 Low）。allowNewline が真なら改行（\n）だけは許す */
+  function hasHiddenChar(text, allowNewline) {
+    var s = String(text);
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c === 10 && allowNewline) continue;
+      if (hiddenCode_(c)) return true;
+    }
+    return false;
+  }
+
+  /** 目に見えない文字を取り除く（Excel からの取り込み。allowNewline が真なら改行は残す） */
+  function stripHidden(text, allowNewline) {
+    var s = String(text), out = '';
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c === 0xDB40) { var d = s.charCodeAt(i + 1); if (d >= 0xDC00 && d <= 0xDFFF) i++; continue; } // タグの文字: 対の後ろの半分も取る
+      if ((c === 10 && allowNewline) || !hiddenCode_(c)) out += s.charAt(i);
+    }
+    return out;
+  }
+
   return {
     STATE: STATE, STATES: STATES, URGENCY: URGENCY, REPEAT: REPEAT, OP_PERMISSION: OP_PERMISSION,
     DAY_KIND: DAY_KIND, DAY_KINDS: DAY_KINDS, HOLIDAY: HOLIDAY, HOLIDAYS: HOLIDAYS, NTH_LAST_WEEKDAY: NTH_LAST_WEEKDAY, NTH_LAST_BIZ: NTH_LAST_BIZ, NTH_RANGE: NTH_RANGE,
@@ -337,6 +420,7 @@ var CalcTask = (function () {
     can: can, addKind: addKind, nextState: nextState, weekendHoliday: weekendHoliday,
     nextBusinessDay: nextBusinessDay, autoDeferTarget: autoDeferTarget, recurringDates: recurringDates,
     sortDay: sortDay, groupKey: groupKey, dueLevel: dueLevel, dueLabel: dueLabel, taskToday: taskToday, isTime: isTime,
-    urgencyMark: urgencyMark, reportText: reportText,
+    urgencyMark: urgencyMark, reportText: reportText, reportFill: reportFill, hasHiddenChar: hasHiddenChar, stripHidden: stripHidden,
+    remindNextDay: remindNextDay, remindClock: remindClock,
   };
 })();

@@ -528,6 +528,8 @@ var CalcWorktime = (function () {
         start = Math.round(Date.UTC(p.y, p.m - 1, N + 1) / 86400000);
       }
     }
+    // 決まりの切り替えで短く切られた期間か（日付を直す前に見る。一番初めの決まりの始まりは、切り替えではない。仕上げの計画 第5章）
+    var switched = (idx > 0 && start < ruleFrom) || (nextFrom !== null && end >= nextFrom);
     if (start < ruleFrom) start = ruleFrom;
     if (nextFrom !== null && end >= nextFrom) end = nextFrom - 1;
     var s = ymd_(start), e = ymd_(end);
@@ -535,7 +537,7 @@ var CalcWorktime = (function () {
       id: dateOf(start) + '_' + dateOf(end),
       from: dateOf(start),
       to: dateOf(end),
-      label: e.y + '年' + e.m + '月分（' + s.m + '/' + s.d + '〜' + e.m + '/' + e.d + '）',
+      label: e.y + '年' + e.m + '月分' + (switched ? '・切り替え' : '') + '（' + s.m + '/' + s.d + '〜' + e.m + '/' + e.d + '）',
     };
   }
 

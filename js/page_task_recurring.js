@@ -47,7 +47,7 @@
       var t = it.repeat === '毎日' ? '毎日' : it.repeat === '曜日' ? '毎週 ' + it.weekdays.map(function (w) { return DOW[w]; }).join('・')
         : it.repeat === '毎年' ? '毎年 ' + it.month + '月 ' + dayText(it) : '毎月 ' + dayText(it);
       var hol = long(it.repeat) && bizKind(it.dayKind) ? '' : it.holiday === H.PREV ? '（休みなら前の営業日）' : it.holiday === H.NEXT ? '（休みなら次の営業日）' : it.holiday === H.SKIP ? '（会社の休みの日は除く）' : '';
-      var rem = it.remindTime ? '・⏰' + Number(it.remindTime.slice(0, 2)) + ':' + it.remindTime.slice(3, 5) + (it.remindEarly ? '（' + MP.taskView.earlyText(it.remindEarly) + '前にも）' : '') : '';
+      var rem = it.remindTime ? '・⏰' + MP.taskView.remindClock(it.remindTime) + (it.remindEarly ? '（' + MP.taskView.earlyText(it.remindEarly) + '前にも）' : '') : '';
       return t + hol + rem + '・' + it.start + '〜' + (it.end || '') + (it.active ? '' : '・止めています');
     }
 

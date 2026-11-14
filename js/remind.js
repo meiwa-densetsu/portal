@@ -6,7 +6,7 @@
  *   今の時刻     … 端末の今 ＋ offset（サーバーの今との差）。日本時間への直し方は CalcTask（端末のタイムゾーンは使わない）
  *   知らせ済み   … MP.store.remindDone()（localStorage。内容は入れない）。同じ知らせを、読み込み直し・別のタブで 2 回出さない
  *   出す直前     … task.reminders を 1 回読み直し、まだ対象のものだけ出す。読めない（NETWORK・BUSY）ときは控えのまま出す。
- *                   それ以外の答え（UNAUTHORIZED など）は、何も出さず・控えを消して・止める
+ *                   それ以外の答え（UNAUTHORIZED など）は、控えを消して止める（ログインが切れた・画面が古いときは、止めたことを帯で 1 回知らせる）
  *   裏の読み直しでは、画面の移動・読み込み直し・ログインの記憶の消去をしない（MP.api.call の raw。入力の途中の画面を壊さない）
  *
  *   MP.remind.start(me)   … 始める（見ている間・仮パスワードの間は始めない）
@@ -33,10 +33,17 @@
   var handled = {};           // ほかのタブの印で、もう確かめた鍵（控えに無くて出さなかったものも入る）
   var bars = [];              // 帯に出している知らせ [{ key, text }]
   var moreNote = false;
+  var stopNote = false;       // 止めたことを、もう帯で知らせた
 
   function cfg() { return MP.config.REMIND; }
   function CT() { return window.CalcTask; }
-  function hm(time) { return Number(time.slice(0, 2)) + ':' + time.slice(3, 5); }
+  // タスクの今日の切り替わり（6:00）より前の時刻は、次の日の時刻として読む（仕上げの計画 第4章）。
+  // 時刻・鍵・今知らせるものは、必ず下の 4 つを通す（切り替わりを渡し忘れると、鍵が食い違って 2 回出る・出ない）
+  function startMin() { return MP.config.TASK_DAY_START_MIN; }
+  function atOf(it) { return CT().remindAt(it, startMin()); }
+  function keyOf(it, kind) { return CT().remindKey(it, kind, startMin()); }
+  function dueOf(items, nowMs, done) { return CT().remindDue(items, nowMs, done, cfg().LATE_MAX_MIN, startMin()); }
+  function hm(time) { return CT().remindClock(time, startMin()); }
 
   function stop() {
     stopped = true;
@@ -63,16 +70,19 @@
         return 'ok';
       }
       if (!res.ok && (res.code === 'NETWORK' || res.code === 'BUSY')) { waitUntil = Date.now() + SOFT_WAIT_MS; return 'soft'; }
-      // ログインが切れた・見るだけ・画面が古い など: 何も出さず、控えを消して止める（画面は動かさない。次のふつうの操作が今までどおり扱う）
+      // ログインが切れた・見るだけ・画面が古い など: 控えを消して止める（画面は動かさない。次のふつうの操作が今までどおり扱う）。
+      // ログインが切れた・画面が古いときだけ、止めたことを帯で 1 回知らせる（開いたままの画面で、知らせが出ないことに気づけるように。仕上げの計画 第3章 C4）
       MP.store.clearRemind();
       stop();
+      if (res && res.code === 'UNAUTHORIZED') showStopped('ログインが切れたため、リマインダーを止めました。ログインし直してください');
+      else if (res && res.code === 'RELOAD') showStopped('画面が古くなったため、リマインダーを止めました。画面を読み込み直してください');
       return 'stop';
     }, function () { inflight = null; waitUntil = Date.now() + SOFT_WAIT_MS; return 'soft'; });
     return inflight;
   }
 
   function due(c) {
-    return CT().remindDue(c.items, Date.now() + c.offset, Object.assign({}, MP.store.remindDone(), shown), cfg().LATE_MAX_MIN);
+    return dueOf(c.items, Date.now() + c.offset, Object.assign({}, MP.store.remindDone(), shown));
   }
 
   /** 印を「読む → 無ければ書く」を、タブ 1 つずつで行う（使えるブラウザだけ）。返す値: 自分が書けた鍵 */
@@ -108,12 +118,20 @@
     bars.slice(0, BAR_MAX).forEach(function (b) {
       bar.appendChild(ui.el('div', { class: 'remind-item' }, [
         ui.el('span', { class: 'remind-text', text: b.text }),
-        ui.el('a', { class: 'btn', href: 'tasks.html', text: 'タスクリストを開く' }),
+        b.plain ? null : ui.el('a', { class: 'btn', href: 'tasks.html', text: 'タスクリストを開く' }),
         ui.el('button', { type: 'button', class: 'btn', text: '閉じる', on: { click: function () { bars = bars.filter(function (x) { return x !== b; }); renderBar(); } } }),
       ]));
     });
     if (bars.length > BAR_MAX) bar.appendChild(ui.el('p', { class: 'remind-more', text: 'ほか ' + (bars.length - BAR_MAX) + ' 件のリマインダーがあります' }));
     if (moreNote) bar.appendChild(ui.el('p', { class: 'remind-more', text: 'ほかにもリマインダーがあります。タスクリストで確かめてください' }));
+  }
+
+  /** 止めたことの知らせ（1 回だけ。タスクリストへのボタンは付けない） */
+  function showStopped(text) {
+    if (stopNote) return;
+    stopNote = true;
+    bars.unshift({ key: 'stopped', text: text, plain: true }); // 先頭に（並べる数の限りで隠れないように）
+    renderBar();
   }
 
   function showBar(f) {
@@ -148,10 +166,10 @@
         onlyKeys.forEach(function (k) { handled[k] = true; });
         var now = Date.now() + c.offset;
         c.items.forEach(function (it) {
-          var at = CT().remindAt(it);
+          var at = atOf(it);
           if (!at) return;
           [CT().REMIND_KIND.EARLY, CT().REMIND_KIND.MAIN].forEach(function (kind) {
-            var key = CT().remindKey(it, kind);
+            var key = keyOf(it, kind);
             if (onlyKeys.indexOf(key) < 0) return;
             var base = kind === CT().REMIND_KIND.EARLY ? at.early : at.main;
             if (base === null) return;
@@ -215,7 +233,7 @@
       if (!stopped && meId === me.employeeId) return;
       // 別の人で始め直す・始め直す: 前の繰り返しを止め、前の人の帯・印の覚えを消す
       stop();
-      bars = []; shown = {}; handled = {}; moreNote = false; lastFetch = 0; waitUntil = 0;
+      bars = []; shown = {}; handled = {}; moreNote = false; stopNote = false; lastFetch = 0; waitUntil = 0;
       renderBar();
       meId = me.employeeId;
       stopped = false;

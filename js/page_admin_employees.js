@@ -317,15 +317,60 @@
           button('名前の一覧用の番号を作り直す', function () {
             act('番号を作り直しますか？', e.name + ' さんは、すべての端末でログインし直しになります。ログインの画面の名前の一覧に問題があるときだけ使ってください。', '作り直す', 'auth.admin.reissueLoginId', '作り直しました');
           });
-          button('利用停止にする', function () {
-            act('利用停止にしますか？', e.name + ' さんはログインできなくなり、名前の一覧にも出なくなります。日報などの記録は残ります。', '利用停止にする', 'auth.admin.suspend', '利用停止にしました');
-          }, 'danger');
+          button('利用停止にする', function () { suspend(e); }, 'danger');
         } else {
           button('利用を再開する', function () {
             act('利用を再開しますか？', e.name + ' さんが、またログインできるようになります。', '再開する', 'auth.admin.reinstate', '利用を再開しました');
           });
         }
         show('detail-view');
+      }
+
+      /**
+       * 利用停止（仕上げの計画 第2b章）。その人が登録した端末（私物のスマホなど）を一覧で出し、選んだものを一緒に取り消す。
+       * 初めは全部に印（会社の端末など、次の人が使うものだけ外す）。管理者が今使っている端末は選べない。一覧を読めなかったら、利用停止をしない
+       */
+      function suspend(e) {
+        var TEXT = e.name + ' さんはログインできなくなり、名前の一覧にも出なくなります。日報などの記録は残ります。';
+        ui.pageMessage('');
+        ui.run(function () {
+          return MP.api.call('auth.admin.status', {}).then(function (st) {
+            if (!st.ok) { ui.pageMessage('端末の一覧を読めなかったので、利用停止をしていません。もう一度押してください（' + st.message + '）', 'error'); return; }
+            var mine = st.data.devices.filter(function (d) { return d.registeredById === e.employeeId && !d.revokedAt; });
+            var current = mine.filter(function (d) { return d.deviceRef === st.data.currentDeviceRef; })[0] || null;
+            var boxes = [];
+            var body = null;
+            if (mine.length) {
+              body = el('div', { id: 'suspend-devices' }, [
+                el('p', { class: 'dialog-body', text: e.name + ' さんが登録した端末です。印を付けた端末は、利用停止と一緒に取り消します（その端末ではだれもログインできなくなります）。会社の端末など、次の人が使うものは印を外してください。' }),
+                el('ul', { class: 'list' }, mine.map(function (d) {
+                  var isCurrent = d === current;
+                  var box = el('input', { type: 'checkbox', class: 'suspend-device', value: d.deviceRef, checked: !isCurrent, disabled: isCurrent });
+                  if (!isCurrent) boxes.push(box);
+                  return el('li', {}, [el('label', { class: 'check' }, [box, d.name]),
+                    el('div', { class: 'sub', text: '登録 ' + ui.fmtDateTime(d.registeredAt) + (d.lastUser ? '・最後に使った人 ' + d.lastUser + '（' + ui.fmtDateTime(d.lastUsedAt) + '）' : '') + (isCurrent ? '・今使っている端末（取り消せません）' : '') })]);
+                })),
+                current ? el('p', { class: 'msg warn', text: '今使っているこの端末は、' + e.name + ' さんが登録した端末です。ここからは取り消せません。私物の端末なら、ほかの端末でログインして「端末とロックの管理」で取り消してください。' }) : null,
+              ]);
+            }
+            return ui.dialog({
+              title: '利用停止にしますか？', text: TEXT, body: body, dismiss: false,
+              buttons: [{ label: '利用停止にする', value: true, kind: 'danger' }, { label: 'やめる', value: false }],
+            }).then(function (yes) {
+              if (!yes) return;
+              var refs = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+              return save('auth.admin.suspend', { employeeId: currentId, revokeDevices: refs }).then(function (r) {
+                if (!r.ok) { ui.pageMessage(r.code === 'NETWORK' ? 'できたか分かりません。もう一度同じボタンを押してください' : r.message, 'error'); return; }
+                var n = r.data && typeof r.data.revokedDevices === 'number' ? r.data.revokedDevices : 0; // 実際に取り消した数（先にほかの管理者が取り消していれば減る）
+                var done = '利用停止にしました' + (n ? '（端末 ' + n + ' 台を取り消しました）' : '');
+                if (r.data && r.data.keptCurrentDevice) {
+                  done += '。今使っているこの端末は、' + e.name + ' さんが登録した端末で、取り消していません。私物の端末なら、ほかの端末でログインして「端末とロックの管理」で取り消してください';
+                }
+                return reload(done);
+              });
+            });
+          });
+        });
       }
 
       /** 確認のあと、社員ID だけを渡す管理者の処理を呼ぶ */
