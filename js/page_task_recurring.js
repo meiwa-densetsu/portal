@@ -14,7 +14,7 @@
     var KIND_LABEL = {};
     KIND_LABEL[K.DAY] = '◯日'; KIND_LABEL[K.LAST] = '月末'; KIND_LABEL[K.NTH_WEEKDAY] = '第◯ ◯曜日'; KIND_LABEL[K.WEEK_FIRST_BIZ] = '第◯週の最初の営業日'; KIND_LABEL[K.NTH_BIZ] = '◯番目の営業日';
     var HOLIDAY_LABEL = {};
-    HOLIDAY_LABEL[H.PREV] = '前の営業日に入れる'; HOLIDAY_LABEL[H.SKIP] = '入れない（飛ばす）'; HOLIDAY_LABEL[H.KEEP] = 'そのまま入れる';
+    HOLIDAY_LABEL[H.PREV] = '前の営業日に入れる'; HOLIDAY_LABEL[H.NEXT] = '次の営業日に入れる'; HOLIDAY_LABEL[H.SKIP] = '入れない（飛ばす）'; HOLIDAY_LABEL[H.KEEP] = 'そのまま入れる';
     var save_ = MP.api.saver(); // 結果が分からない後の同じ中身の送り直しは同じ requestId（二重に作らない。Codex 実装1回目 medium）
 
     function load(first) {
@@ -46,7 +46,7 @@
     function ruleText(it) {
       var t = it.repeat === '毎日' ? '毎日' : it.repeat === '曜日' ? '毎週 ' + it.weekdays.map(function (w) { return DOW[w]; }).join('・')
         : it.repeat === '毎年' ? '毎年 ' + it.month + '月 ' + dayText(it) : '毎月 ' + dayText(it);
-      var hol = long(it.repeat) && bizKind(it.dayKind) ? '' : it.holiday === H.PREV ? '（休みなら前の営業日）' : it.holiday === H.SKIP ? '（会社の休みの日は除く）' : '';
+      var hol = long(it.repeat) && bizKind(it.dayKind) ? '' : it.holiday === H.PREV ? '（休みなら前の営業日）' : it.holiday === H.NEXT ? '（休みなら次の営業日）' : it.holiday === H.SKIP ? '（会社の休みの日は除く）' : '';
       var rem = it.remindTime ? '・⏰' + Number(it.remindTime.slice(0, 2)) + ':' + it.remindTime.slice(3, 5) + (it.remindEarly ? '（' + MP.taskView.earlyText(it.remindEarly) + '前にも）' : '') : '';
       return t + hol + rem + '・' + it.start + '〜' + (it.end || '') + (it.active ? '' : '・止めています');
     }

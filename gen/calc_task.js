@@ -9,7 +9,7 @@
  *   nextState(state, op)                … 状態の移り方（2-3）。できなければ null
  *   nextBusinessDay(date, isHoliday)    … 次の営業日（isHoliday(date) → true / false。分からない日は呼ぶ側が土日で答える）
  *   autoDeferTarget(date, today, isHoliday) … 自動の先送りの先と、飛ばした営業日の数（2-4）
- *   recurringDates(rule, from, to, isHoliday) … 定型タスクの「入れる日」（2-5。v3 計画 2-1〜2-3: 毎年・月末・第n曜日・第n週の初営業日・第n営業日・休みは前の営業日へ）
+ *   recurringDates(rule, from, to, isHoliday) … 定型タスクの「入れる日」（2-5。v3 計画 2-1〜2-3: 毎年・月末・第n曜日・第n週の初営業日・第n営業日・休みは前の営業日へ／次の営業日へ）
  *   isLongCycle(rule)                   … 毎月・毎年か（さかのぼりの限りを長くする。v3 計画 2-4）
  *   can(…, 'remind')・remindAt・remindDue・remindKey … リマインダー（v3 計画 第3章）
  *   sortDay(list)                       … 表示の並びの正本（v2 計画 2-3: 状態の組 → 急ぎ → 締め切り → 並び → タスクID）
@@ -29,9 +29,9 @@ var CalcTask = (function () {
   /** 毎月・毎年の「日の決め方」（v3 計画 2-1）。空は DAY と同じ */
   var DAY_KIND = { DAY: '日', LAST: '月末', NTH_WEEKDAY: '第n曜日', WEEK_FIRST_BIZ: '第n週の初営業日', NTH_BIZ: '第n営業日' };
   var DAY_KINDS = [DAY_KIND.DAY, DAY_KIND.LAST, DAY_KIND.NTH_WEEKDAY, DAY_KIND.WEEK_FIRST_BIZ, DAY_KIND.NTH_BIZ];
-  /** 休みの日に当たったとき（v3 計画 2-2） */
-  var HOLIDAY = { PREV: '前の営業日', SKIP: '飛ばす', KEEP: 'そのまま' };
-  var HOLIDAYS = [HOLIDAY.PREV, HOLIDAY.SKIP, HOLIDAY.KEEP];
+  /** 休みの日に当たったとき（v3 計画 2-2。「次の営業日」はユーザーの依頼 2026-11-15） */
+  var HOLIDAY = { PREV: '前の営業日', NEXT: '次の営業日', SKIP: '飛ばす', KEEP: 'そのまま' };
+  var HOLIDAYS = [HOLIDAY.PREV, HOLIDAY.NEXT, HOLIDAY.SKIP, HOLIDAY.KEEP];
   /** 第n の特別な値: 最後の◯曜日・最後の営業日。ふつうの値の範囲は NTH_RANGE */
   var NTH_LAST_WEEKDAY = 9, NTH_LAST_BIZ = 99;
   var NTH_RANGE = { WEEKDAY: [1, 5], WEEK: [1, 6], BIZ: [1, 23] };
@@ -189,18 +189,21 @@ var CalcTask = (function () {
    * 定型タスクの「入れる日」（計画 2-5・v3 計画 2-3）。from〜to（両端を含む）に入るものを、昇順・重なり無しで返す。
    * rule: { repeat: 毎日・曜日・毎月・毎年, weekdays: [0..6]（曜日のとき）, month: 1〜12（毎年）,
    *         dayKind（毎月・毎年。空は「日」）, day: 1〜31, nth, weekday: 0〜6,
-   *         holiday: 前の営業日・飛ばす・そのまま（無ければ businessOnly から）, shiftMax（前へずらす日数の限り。呼ぶ側が設定から入れる）,
+   *         holiday: 前の営業日・次の営業日・飛ばす・そのまま（無ければ businessOnly から）, shiftMax（前・次へずらす日数の限り。呼ぶ側が設定から入れる）,
    *         start, end（空なら無期限。名目の日に当てる） }
-   * 手順: 名目の日を from〜to + shiftMax で調べる → start・end → 決まり → 休みの扱い → 入れる日が from〜to のものだけ
+   * 手順: 名目の日を from〜to + shiftMax（前へずらすとき）・from − shiftMax〜to（次へずらすとき）で調べる → start・end → 決まり → 休みの扱い → 入れる日が from〜to のものだけ
    */
   function recurringDates(rule, from, to, isHoliday) {
     var out = [];
     if (!rule || !isDate(from) || !isDate(to) || from > to) return out;
     var hol = isHoliday || weekendHoliday;
     var mode = holidayOf(rule);
-    var shiftMax = mode === HOLIDAY.PREV ? Math.max(0, Math.floor(Number(rule.shiftMax) || 0)) : 0;
+    var dir = mode === HOLIDAY.PREV ? -1 : mode === HOLIDAY.NEXT ? 1 : 0; // ずらす向き（前へ・次へ・ずらさない）
+    var shiftMax = dir !== 0 ? Math.max(0, Math.floor(Number(rule.shiftMax) || 0)) : 0;
     var seen = {};
-    for (var n = dayNumber(from), last = dayNumber(to) + shiftMax; n <= last; n++) {
+    var first = dayNumber(from) - (dir > 0 ? shiftMax : 0); // 次へずらす: from より前の名目の日が、from 以降に入る
+    var last = dayNumber(to) + (dir < 0 ? shiftMax : 0); // 前へずらす: to より先の名目の日が、to 以前に入る
+    for (var n = first; n <= last; n++) {
       var d = dateOf(n);
       if (rule.start && d < rule.start) continue;
       if (rule.end && d > rule.end) continue;
@@ -208,10 +211,10 @@ var CalcTask = (function () {
       var put = d;
       if (hol(d)) {
         if (mode === HOLIDAY.SKIP) continue;
-        if (mode === HOLIDAY.PREV) {
+        if (dir !== 0) {
           put = null;
           for (var k = 1; k <= shiftMax; k++) {
-            var e = addDays(d, -k);
+            var e = addDays(d, dir * k);
             if (!hol(e)) { put = e; break; }
           }
           if (!put) continue;
