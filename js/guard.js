@@ -6,6 +6,11 @@
  *     admin     … 管理者でなければ home へ戻す
  *     allowTemp … 仮パスワードのままでも入れる（パスワードの変更の画面だけ）
  *     load      … 画面のデータの処理。その答えに付く me を使い、auth.me を別に聞かない（me が無ければ聞き直す）
+ *     instant   … 控えの me（MP.store.me）が使えれば、サーバーに聞く前にその me を返す（ホームだけ。load が無いとき）。
+ *                 本物の me が来たら onMe(me) を呼ぶ（計画 stage2-switch-speed-plan.md 1-2）
+ *     onFail    … 失敗の文を出した直後に呼ぶ（画面を移るときは呼ばない）
+ *     noLoadingNote … 待つ間の「読み込み中…」を出さない（画面が自分で一言を出すとき）
+ *   控えの me が使えるときは、どの画面でも、サーバーに聞く前に上の帯を出す（見た目だけ。画面を移る判定は本物の me だけで行う）
  *     retryable … load の通信の失敗（NETWORK）・混み合い（BUSY）を、止めずに { me: null, res } で返す（画面が「もう一度」を出す）
  *
  * 画面の出し分けは見た目だけ。本当の守りは、サーバーの権限の確認
@@ -114,13 +119,30 @@
         MP.go('home.html');
         return never;
       }
+      // 控えの me が使えるか（仮パスワード・見ている間の控えは MP.store.me が返さない。管理者の画面は、控えが管理者のときだけ）
+      var early = MP.store.me();
+      if (early && o.admin && early.role !== ROLE_ADMIN) early = null;
+      var note = null; // 待つ間の「読み込み中…」
+      function endNote() { if (note && note.parentNode) note.parentNode.removeChild(note); note = null; }
+      if (early) {
+        renderTopbar(early, o);
+        var msg = MP.ui.$('msg');
+        if (o.load && !o.noLoadingNote && msg && msg.parentNode) {
+          note = MP.ui.el('p', { class: 'loading-note', id: 'loading-note', role: 'status', text: '読み込み中…' });
+          msg.parentNode.insertBefore(note, msg.nextSibling);
+        }
+      }
       function failed(res) {
+        endNote();
         // 見るだけでは使えない画面（管理者の画面・端末の追加など）は、ホームへ戻す
         if (res.code === 'VIEW_ONLY') { MP.store.setFlash('社員の画面を見ている間は、この画面は開けません'); MP.go('home.html'); return never; }
         MP.ui.pageMessage(res.message + '\n画面を読み込み直してください', 'error');
+        if (o.onFail) o.onFail(res);
         return never;
       }
       function pass(me) {
+        endNote();
+        MP.store.setMe(me); // 次に開くときの控え（仮パスワードのままなら消える。見ている間は何もしない）
         if (me.mustChangePassword && !o.allowTemp) { MP.go('password.html'); return false; }
         if (o.admin && me.role !== ROLE_ADMIN) { MP.go('home.html'); return false; }
         renderTopbar(me, o);
@@ -128,14 +150,21 @@
         return true;
       }
       if (!o.load) {
-        return MP.api.call('auth.me', {}).then(function (res) {
+        var asked = MP.api.call('auth.me', {}).then(function (res) {
           if (!res.ok) return failed(res);
           return pass(res.data) ? res.data : never;
         });
+        if (o.instant && early) {
+          // 控えですぐに始める。本物の答えは後から onMe に渡す（失敗・画面の移動は上の failed・pass と MP.api の共通の扱いのまま）
+          MP.ui.showFlash();
+          asked.then(function (me) { if (o.onMe) o.onMe(me); });
+          return Promise.resolve(early);
+        }
+        return asked;
       }
       return MP.api.call(o.load.action, o.load.args || {}).then(function (res) {
         // retryable … 通信の失敗・混み合いは、画面の側で「もう一度」を出せるように { me: null, res } で返す（手順10 2-4。Codex 実装1回目 medium）
-        if (!res.ok && o.retryable && (res.code === 'NETWORK' || res.code === 'BUSY')) return { me: null, res: res };
+        if (!res.ok && o.retryable && (res.code === 'NETWORK' || res.code === 'BUSY')) { endNote(); return { me: null, res: res }; } // 「読み込み中…」を残さない（内部レビュー medium）
         if (!res.ok) return failed(res);
         if (res.me && typeof res.me === 'object') return pass(res.me) ? { me: res.me, res: res } : never;
         return MP.api.call('auth.me', {}).then(function (r2) {

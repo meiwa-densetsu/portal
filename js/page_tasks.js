@@ -32,6 +32,12 @@
     var seenSent = {};     // 「見た」を送ったタスク（タスクID:版）
     var undo = null;       // 完了にした直後の帯 { taskId, timer }
     var explicitMonth = false, firstLoad = true;
+    // 前に開いたときの内容（控え）を先に出す（計画 stage2-switch-speed-plan.md 1-3）
+    var stale = false;     // 控えを出している間（loading は立てたまま。書く操作はすべて loading で止まる）
+    var gotFresh = false;  // この画面で、本物の task.month を 1 回は読めた
+    var sideCalls = 0;     // 列を通らない通信（依頼を見た印・知らせの ✕）の途中の数
+    var STALE_TEXT = '前に開いたときの内容です。最新を確かめています…';
+    var STALE_FAILED_TEXT = '前に開いたときの内容です（最新を読めませんでした。画面を読み込み直してください）';
 
     function viewing() { return MP.guard.viewing(); }
     /** 開く月の初めの見当（端末の時計で、朝 6 時より前は前の日。本当の「タスクの今日」はサーバーの答えで決め直す） */
@@ -62,11 +68,13 @@
       var my = ++loadSeq;
       var args = { month: ym };
       setLoading(true);
-      var p = first ? MP.guard.enter({ load: { action: 'task.month', args: args } })
+      var p = first ? MP.guard.enter({ load: { action: 'task.month', args: args }, noLoadingNote: stale, onFail: staleFailed })
         : MP.api.call('task.month', args).then(function (res) { return { me: me, res: res }; });
       return p.then(function (r) {
         if (my !== loadSeq) return; // 古い答え
         me = r.me;
+        // 控えを出している間に読めなかった: 止めたまま（loading を下ろさない）にして、一言だけ変える
+        if (!r.res.ok && stale) { staleFailed(); ui.pageMessage(r.res.message + '\n画面を読み込み直してください', 'error'); return; }
         setLoading(false);
         if (!r.res.ok) { // 読めなければ、今出している月と日に戻す（月の移動で day を空にしていても。Codex 実装5回目 medium）
           if (data) { ym = data.month; day = shownDay; render(); }
@@ -81,17 +89,74 @@
         }
         firstLoad = false;
         data = r.res.data;
-        ui.$('view').hidden = false;
-        ui.$('to-export').hidden = !MP.guard.isAdmin(me) || viewing();
-        if (!day || day.slice(0, 7) !== ym) day = data.taskToday.slice(0, 7) === ym ? data.taskToday : data.from;
-        shownDay = day;
-        if (deptId === null) { // 初めは端末に覚えた部署。無ければ自分の部署（部署が無い人は全員）
-          var saved = got(DEPT_KEY);
-          deptId = saved !== null && (saved === '' || data.departments.some(function (d) { return d.deptId === saved; })) ? saved : (data.myDeptId || '');
-        } else if (deptId !== '' && !data.departments.some(function (d) { return d.deptId === deptId; })) deptId = '';
-        jumpToday = true;
-        render();
+        stale = false;
+        gotFresh = true;
+        ui.$('stale-note').hidden = true;
+        saveView(); // 描く前に（描くと「依頼を見た印」の通信が始まることがある）
+        adopt();
       });
+    }
+
+    /** data（本物の答え・控え）を画面に出す。日と部署を決めてから描く */
+    function adopt() {
+      ui.$('view').hidden = false;
+      ui.$('to-export').hidden = !MP.guard.isAdmin(me) || viewing();
+      if (!day || day.slice(0, 7) !== ym) day = data.taskToday.slice(0, 7) === ym ? data.taskToday : data.from;
+      shownDay = day;
+      if (deptId === null) { // 初めは端末に覚えた部署。無ければ自分の部署（部署が無い人は全員）
+        var saved = got(DEPT_KEY);
+        deptId = saved !== null && (saved === '' || data.departments.some(function (d) { return d.deptId === saved; })) ? saved : (data.myDeptId || '');
+      } else if (deptId !== '' && !data.departments.some(function (d) { return d.deptId === deptId; })) deptId = '';
+      jumpToday = true;
+      render();
+    }
+
+    /** 控えを出している間に、最新を読めなかった: 一言を変える（止めたままなのは loading が立ったままだから） */
+    function staleFailed() {
+      if (!stale) return;
+      var n = ui.$('stale-note');
+      n.textContent = STALE_FAILED_TEXT;
+      n.hidden = false;
+    }
+
+    /**
+     * 今の内容を、次に開くときの控えとして覚える（最新を読めたとき・画面を離れるとき）。
+     * 条件が 1 つでも欠ければ、書かずに古い控えを消す。見ている間（なりすまし）は何もしない
+     */
+    function saveView() {
+      if (viewing()) return;
+      var ok = gotFresh && !stale && !loading && !sending && !queue.length && !failed && !sideCalls
+        && !!data && !!me && data.month === String(data.taskToday).slice(0, 7);
+      if (ok) MP.store.setTaskView(me.employeeId, data); else MP.store.clearTaskView();
+    }
+
+    /** 控えとして出せる形か（今月・端末の時計の見当と同じ「タスクの今日」・一覧が配列） */
+    function usableView(v) {
+      return !!v && v.month === ym && v.taskToday === guessToday() && typeof v.from === 'string' && typeof v.to === 'string'
+        && Array.isArray(v.items) && Array.isArray(v.people) && Array.isArray(v.departments) && !!v.rules && typeof v.rules === 'object';
+    }
+
+    /** 初めに: 控えがあれば、最新を待たずに出す（loading を立てたまま ＝ 見るだけ） */
+    function showStale() {
+      if (explicitMonth || viewing()) return;
+      var cm = MP.store.me();
+      var v = cm ? MP.store.taskView() : null;
+      if (!usableView(v)) return;
+      stale = true;
+      me = cm;
+      data = v;
+      loading = true; // 描く前に立てる（描く中の sendSeen・行のボタンが loading を見る）
+      try {
+        adopt();
+      } catch (e) { // 控えの中身が今の画面と合わない（古い版の控えなど）: 捨てて、今までどおり最新を待つ
+        stale = false; me = null; data = null; day = null; shownDay = null; deptId = null;
+        ui.$('view').hidden = true;
+        MP.store.clearTaskView();
+        return;
+      }
+      var n = ui.$('stale-note');
+      n.textContent = STALE_TEXT;
+      n.hidden = false;
     }
 
     function findItem(taskId) { return data.items.filter(function (i) { return i.taskId === taskId; })[0] || null; }
@@ -177,7 +242,9 @@
     function dismiss(n) {
       // ほかの操作を送っている間・止まっている間は押せない（古い表示に対する操作を並べて送らない。Codex 実装1回目 low）
       if (loading || sending || queue.length || failed || viewing()) return;
+      sideCalls++; // 答えが来るまでは、控えを書かない
       MP.api.call('task.notice.dismiss', { items: [{ taskId: n.taskId, kind: n.kind, stamp: n.stamp }] }, { requestId: MP.api.newRequestId() }).then(function (res) {
+        sideCalls--;
         if (!res.ok) { ui.pageMessage(res.message || '知らせを消せませんでした', 'error'); return; }
         data.notices = data.notices.filter(function (x) { return !(x.taskId === n.taskId && x.kind === n.kind && x.stamp === n.stamp); });
         if (res.data.skipped && res.data.skipped.length) { if (!sending && !queue.length) reloadNow(); return; }
@@ -187,14 +254,17 @@
 
     /** 自分に来た新しい依頼を「見た」にする（出したものだけ・1回だけ）。印はこの画面を読み直すまで出したまま */
     function sendSeen() {
-      if (viewing() || !data) return;
+      // サーバーへ書く処理なので、読み込みの間（控えを出している間も）は送らない。読み終わった後の render でもう一度呼ばれる
+      if (viewing() || !data || loading) return;
       var mine = data.items.filter(function (i) { return i.fresh && i.owner === me.employeeId && (mode === 'table' || i.date === day); })
         .filter(function (i) { return !seenSent[i.taskId + ':' + i.recordVersion]; });
       if (!mine.length) return;
       mine.forEach(function (i) { seenSent[i.taskId + ':' + i.recordVersion] = true; });
       var max = data.rules.seenMax || 100;
       var send = function (part) {
+        sideCalls++; // 答えが来るまでは、控えを書かない
         MP.api.call('task.request.seen', { items: part.map(function (i) { return { taskId: i.taskId, baseVersion: i.recordVersion }; }) }, { requestId: MP.api.newRequestId() }).then(function (res) {
+          sideCalls--;
           // 送れなかったときは「送った」の印を外す（次に描くときにもう一度送る。内部レビュー low）
           if (!res.ok) part.forEach(function (i) { delete seenSent[i.taskId + ':' + i.recordVersion]; });
         });
@@ -788,6 +858,17 @@
     ym = explicitMonth ? q.get('month') : guessToday().slice(0, 7);
     mode = got(VIEW_KEY) === 'table' || got(VIEW_KEY) === 'list' ? got(VIEW_KEY) : window.innerWidth >= 600 ? 'table' : 'list';
     textMode = got(TEXT_KEY) === 'wrap' ? 'wrap' : 'clip';
+    // 画面を離れるとき: 今の内容を控えに（送っている途中などは、書かずに消す）
+    window.addEventListener('pagehide', saveView);
+    // 「戻る」で前のページがそのまま戻ったとき: 古いまま操作させず、最新を読み直す
+    // 開いたときと違うログイン（ログアウトした・別の人がログインした）なら、入口からやり直す（前の人の名前のまま、次の人の内容を読まない。セキュリティの確認 Low）
+    var openedAs = MP.store.tokenMark();
+    window.addEventListener('pageshow', function (e) {
+      if (!e.persisted) return;
+      if (MP.store.tokenMark() !== openedAs) { window.location.reload(); return; }
+      if (!loading && !sending && !queue.length && !failed) reloadNow();
+    });
+    showStale();
     return load(true);
   });
 })();

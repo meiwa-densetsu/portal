@@ -141,6 +141,9 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--c-
 .msg { border-radius: var(--radius); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4); border: 1px solid transparent; white-space: pre-line; }
 .msg.error { background: var(--c-danger-weak); border-color: var(--c-danger); color: var(--c-danger); font-weight: 700; }
 .msg.info { background: var(--c-primary-weak); border-color: var(--c-primary); }
+/* 待つ間の一言（上の帯を先に出した後）と、前に開いたときの内容を出している間の一言 */
+.loading-note { color: var(--c-sub); font-size: var(--fs-small); margin: 0 0 var(--sp-3); }
+.stale-note { color: var(--c-sub); font-size: var(--fs-small); margin: 0 0 var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px dashed var(--c-line-strong); border-radius: var(--radius); }
 .msg.warn { background: var(--c-warn-weak); border-color: var(--c-warn); color: var(--c-warn); }
 .msg.ok { background: var(--c-ok-weak); border-color: var(--c-ok); color: var(--c-ok); }
 
