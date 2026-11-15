@@ -136,6 +136,8 @@
         endNote();
         // 見るだけでは使えない画面（管理者の画面・端末の追加など）は、ホームへ戻す
         if (res.code === 'VIEW_ONLY') { MP.store.setFlash('社員の画面を見ている間は、この画面は開けません'); MP.go('home.html'); return never; }
+        // 保管済みの月（3 年より前）を住所やお気に入りから直接開いた: 読み込み直しても開けないので、ホームへ戻して一言だけ出す
+        if (res.code === 'ARCHIVED') { MP.store.setFlash(res.message); MP.go('home.html'); return never; }
         MP.ui.pageMessage(res.message + '\n画面を読み込み直してください', 'error');
         if (o.onFail) o.onFail(res);
         return never;
