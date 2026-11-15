@@ -5,11 +5,12 @@
  * 計画 docs/plans/stage2-tasklist-plan.md 第2章。
  *
  *   can(user, task, op)                 … その人がそのタスクにその操作をしてよいか（2-2 の表。サーバーで必ず確かめる。画面はボタンの出し分けだけ）
- *   addKind(user, ownerId)              … だれの欄に足せるか: 'own'（自分の欄）・'request'（依頼）・'admin'（管理者が他の人の欄に。依頼ではない）
+ *   addKind(user, ownerId)              … だれの欄に足せるか: 'own'（自分の欄）・'request'（ほかの人の欄 = 依頼。管理者が足しても依頼。ユーザー決定 2026-11-15）
  *   nextState(state, op)                … 状態の移り方（2-3）。できなければ null
  *   nextBusinessDay(date, isHoliday)    … 次の営業日（isHoliday(date) → true / false。分からない日は呼ぶ側が土日で答える）
  *   autoDeferTarget(date, today, isHoliday) … 自動の先送りの先と、飛ばした営業日の数（2-4）
  *   recurringDates(rule, from, to, isHoliday) … 定型タスクの「入れる日」（2-5。v3 計画 2-1〜2-3: 毎年・月末・第n曜日・第n週の初営業日・第n営業日・休みは前の営業日へ／次の営業日へ）
+ *   planUntil(rule, today, months, years) … 先の日に「予定」として出す最後の日（計画 docs/plans/stage2-task-plan-ahead-plan.md）
  *   isLongCycle(rule)                   … 毎月・毎年か（さかのぼりの限りを長くする。v3 計画 2-4）
  *   can(…, 'remind')・remindAt・remindDue・remindKey … リマインダー（v3 計画 第3章）
  *   sortDay(list)                       … 表示の並びの正本（v2 計画 2-3: 状態の組 → 急ぎ → 締め切り → 並び → タスクID）
@@ -47,8 +48,25 @@ var CalcTask = (function () {
     var t = Date.UTC(Number(text.slice(0, 4)), Number(text.slice(5, 7)) - 1, Number(text.slice(8, 10)));
     return new Date(t).toISOString().slice(0, 10) === text;
   }
-  function dayNumber(date) { return Math.round(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))) / DAY_MS); }
-  function dateOf(n) { return new Date(n * DAY_MS).toISOString().slice(0, 10); }
+  // 日付 ⇔ 通し番号は、同じ値を何度も聞かれる（定型の「入れる日」は 1 日ずつ調べる）ので覚えておく。答えは変わらない。覚える数には限りを置く
+  var DAY_MEMO_MAX = 4000;
+  // 入れ物は Object.create(null)（'constructor' などの名前を、覚えた値と取り違えない）
+  var numMemo_ = Object.create(null), dateMemo_ = Object.create(null), memoCount_ = 0;
+  function memoRoom_() { if (memoCount_ >= DAY_MEMO_MAX) { numMemo_ = Object.create(null); dateMemo_ = Object.create(null); memoCount_ = 0; } memoCount_++; }
+  function dayNumber(date) {
+    var hit = numMemo_[date];
+    if (hit !== undefined) return hit;
+    var n = Math.round(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))) / DAY_MS);
+    if (typeof date === 'string') { memoRoom_(); numMemo_[date] = n; }
+    return n;
+  }
+  function dateOf(n) {
+    var hit = dateMemo_[n];
+    if (hit !== undefined) return hit;
+    var d = new Date(n * DAY_MS).toISOString().slice(0, 10);
+    memoRoom_(); dateMemo_[n] = d;
+    return d;
+  }
   function addDays(date, k) { return dateOf(dayNumber(date) + k); }
   /** 曜日（日曜 = 0 … 土曜 = 6） */
   function dowOf(date) { return new Date(dayNumber(date) * DAY_MS).getUTCDay(); }
@@ -85,7 +103,7 @@ var CalcTask = (function () {
   function addKind(user, ownerId, ownerActive) {
     if (!user || !ownerId || ownerActive === false) return null;
     if (str_(user.employeeId) === str_(ownerId)) return 'own';
-    return isAdmin_(user) ? 'admin' : 'request';
+    return 'request'; // 管理者がほかの人の欄に足したときも依頼（ユーザー決定 2026-11-15: 管理者も作業する人の 1 人。前は「依頼ではない」だった）
   }
 
   /** 状態の移り方（計画 2-3）。op: complete・reopen・defer・cancel・uncancel */
@@ -225,6 +243,20 @@ var CalcTask = (function () {
       out.push(put);
     }
     return out.sort();
+  }
+
+  /**
+   * その定型の「予定」を出す最後の日（計画 docs/plans/stage2-task-plan-ahead-plan.md 第1章）。
+   * 毎年: today の年 + years の 12 月 31 日。それ以外: today の月から months か月後の月の末日。
+   * today が日付でない・months / years が 0 以上の整数でない → ''（予定を出さない）
+   */
+  function planUntil(rule, today, months, years) {
+    var okInt = function (n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n && n >= 0; };
+    if (!rule || !isDate(today) || !okInt(months) || !okInt(years)) return '';
+    var y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
+    if (rule.repeat === REPEAT.YEARLY) return (y + years) + '-12-31';
+    // 月の末日 = その次の月の 1 日の前の日（Date.UTC の月は 0 始まり。m + months は「次の月」の番号になる）
+    return new Date(Date.UTC(y, m + months, 1) - DAY_MS).toISOString().slice(0, 10);
   }
 
   function isTime(text) { return typeof text === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(text); }
@@ -421,6 +453,6 @@ var CalcTask = (function () {
     nextBusinessDay: nextBusinessDay, autoDeferTarget: autoDeferTarget, recurringDates: recurringDates,
     sortDay: sortDay, groupKey: groupKey, dueLevel: dueLevel, dueLabel: dueLabel, taskToday: taskToday, isTime: isTime,
     urgencyMark: urgencyMark, reportText: reportText, reportFill: reportFill, hasHiddenChar: hasHiddenChar, stripHidden: stripHidden,
-    remindNextDay: remindNextDay, remindClock: remindClock,
+    remindNextDay: remindNextDay, remindClock: remindClock, planUntil: planUntil,
   };
 })();

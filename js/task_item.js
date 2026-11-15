@@ -7,7 +7,7 @@
  *   MP.taskItem.due(it, data)     … 締め切りの印（無ければ null）。data は { nowDate, nowMin, rules: { dueSoonDays } }
  *   MP.taskItem.tags(it, data)    … 行の印（依頼:名前・新・相談・🔒・↻3）をまとめた要素（無ければ null）
  *   MP.taskItem.row(e, data, o)   … 1件の行 <li>。[番号] [□] [急ぎ 内容 … 印] [〆]
- *        e: { kind: 'task' | 'mark', it, no }
+ *        e: { kind: 'task' | 'plan' | 'mark', it, no }（plan = 定型タスクの予定。押せない行）
  *        o: { canCheck（□ を押せるか）, disabled, onCheck(it, done), onOpen(it, no) }
  *   MP.taskItem.notice(n, o)      … 知らせの1件 <li>。o: { canDismiss, disabled, onDismiss(n) }
  */
@@ -42,6 +42,11 @@
     if (e.kind === 'mark') {
       return ui.el('li', { class: 'tk-row tk-mark' }, [ui.el('span', { class: 'tk-no' }), ui.el('span', { class: 'tk-box-ro', text: '→' }),
         ui.el('span', { class: 'tk-main-ro' }, [ui.el('span', { class: 'tk-text', text: md(it.to) + 'へ先送り ' + it.content + (it.hidden ? ' 🔒' : '') })])]);
+    }
+    // 定型タスクの予定（計画 stage2-task-plan-ahead-plan.md 3-2）: 見えるだけ。ボタンを作らず、内容・急ぎ・🔒 だけを読む（状態・できること・印は無い）
+    if (e.kind === 'plan') {
+      return ui.el('li', { class: 'tk-row tk-plan' }, [ui.el('span', { class: 'tk-no' }), ui.el('span', { class: 'tk-box-ro', text: '・' }),
+        ui.el('span', { class: 'tk-main-ro' }, [ui.el('span', { class: 'tk-text', text: MP.taskView.planText(it) }), ui.el('span', { class: 'tk-tag', text: '予定' })])]);
     }
     var done = it.state === '完了', cancelled = it.state === '取りやめ';
     var box = o.canCheck

@@ -2,8 +2,9 @@
  * タスクリストの表示の計算（計画 docs/plans/stage2-tasklist-v2-plan.md 2-2〜2-4・2-10・2-11）。
  * 画面の部品を使わない純粋な JS（Node のテストでも読み込む）。並び・締め切りの正本は CalcTask（gen/calc_task.js）
  *
- *   MP.taskView.entries(data, owner, date)   … その人・その日の並び: [{ kind: 'task' | 'mark', it, no }]（タスクは CalcTask.sortDay の順・番号つき。先送りの印は最後）
- *   MP.taskView.counts(list)                 … { open, total }（見出しの「残り◯／全◯件」。先送りの印は数えない）
+ *   MP.taskView.entries(data, owner, date)   … その人・その日の並び: [{ kind: 'task' | 'plan' | 'mark', it, no }]（タスクは CalcTask.sortDay の順・番号つき → 定型タスクの予定 → 先送りの印）
+ *   MP.taskView.counts(list)                 … { open, total }（見出しの「残り◯／全◯件」。予定・先送りの印は数えない）
+ *   MP.taskView.planCount(list)              … 定型タスクの予定の数（見出しの「・予定◯」）
  *   MP.taskView.due(it, data)                … 締め切りの印 { text, level }（無ければ null）
  *   MP.taskView.tags(it, data)               … 行に付ける印の文字の並び（依頼: 名前・新・🔒・↻3）
  *   MP.taskView.cellText(e, data)            … 月の表のマスに出す文字（番号以外をつないだもの）
@@ -19,12 +20,16 @@
   // 画面では window.CalcTask。Node のテストでは globalThis.CalcTask に入れてから読み込む
   function ct() { return (root && root.CalcTask) || globalThis.CalcTask; }
   var ALL = '全員';
+  var PLAN_MARK = '〔予定〕';
 
   function md(d) { return Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)); }
 
   function entries(data, owner, date) {
     var tasks = ct().sortDay(data.items.filter(function (i) { return i.owner === owner && i.date === date; }));
     var list = tasks.map(function (i, k) { return { kind: 'task', it: i, no: k + 1 }; });
+    // 定型タスクの予定（計画 stage2-task-plan-ahead-plan.md 3-1）。サーバーが並べた順のまま。古いサーバー・古い控えには無い
+    (data.plans || []).filter(function (p) { return p.owner === owner && p.date === date; })
+      .forEach(function (p) { list.push({ kind: 'plan', it: p, no: 0 }); });
     data.marks.filter(function (m) { return m.owner === owner && m.date === date; })
       .forEach(function (m) { list.push({ kind: 'mark', it: m, no: 0 }); });
     return list;
@@ -33,6 +38,15 @@
   function counts(list) {
     var tasks = list.filter(function (e) { return e.kind === 'task'; });
     return { open: tasks.filter(function (e) { return e.it.state === '未完了'; }).length, total: tasks.length };
+  }
+
+  /** 並びの中の、定型タスクの予定の数（見出しの「・予定◯」） */
+  function planCount(list) { return list.filter(function (e) { return e.kind === 'plan'; }).length; }
+
+  /** 予定の文字（急ぎの印 + 内容 + 🔒）。予定には状態・締め切り・印が無い */
+  function planText(it) {
+    var u = ct().urgencyMark(it.urgency);
+    return (u ? u + ' ' : '') + it.content + (it.hidden ? ' 🔒' : '');
   }
 
   function due(it, data) {
@@ -72,6 +86,7 @@
   function cellText(e, data) {
     var it = e.it;
     if (e.kind === 'mark') return '→' + md(it.to) + 'へ先送り ' + it.content + (it.hidden ? ' 🔒' : '');
+    if (e.kind === 'plan') return PLAN_MARK + planText(it);
     var u = ct().urgencyMark(it.urgency);
     var d = due(it, data);
     var t = tags(it, data);
@@ -81,6 +96,7 @@
   function fullText(e, data) {
     var it = e.it;
     if (e.kind === 'mark') return cellText(e, data) + '（先送りの印）';
+    if (e.kind === 'plan') return cellText(e, data) + '（定型タスクの予定。当日にタスクとして入ります）';
     var parts = [it.state];
     var d = due(it, data);
     if (it.due) parts.push('締め切り ' + md(it.due) + (it.dueTime ? ' ' + Number(it.dueTime.slice(0, 2)) + ':' + it.dueTime.slice(3, 5) : '') + (d && d.level === 'over' ? '（過ぎています）' : ''));
@@ -95,6 +111,7 @@
 
   function cls(e) {
     if (e.kind === 'mark') return 'tk-mark';
+    if (e.kind === 'plan') return 'tk-plan';
     return (e.it.state === '完了' ? 'tk-done' : e.it.state === '取りやめ' ? 'tk-cancel' : '') + (e.it.urgency !== '通常' && e.it.state === '未完了' ? ' tk-urgent' : '');
   }
 
@@ -146,7 +163,7 @@
     return { ownerId: it.owner, date: it.date, order: order, versions: versions };
   }
 
-  var api = { ALL: ALL, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
+  var api = { ALL: ALL, PLAN_MARK: PLAN_MARK, planText: planText, planCount: planCount, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
     people: people, handovers: handovers, summary: summary, moveArgs: moveArgs, remindMark: remindMark, remindText: remindText, earlyText: earlyText, remindClock: remindClock };
   if (root) { root.MP = root.MP || {}; root.MP.taskView = api; }
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

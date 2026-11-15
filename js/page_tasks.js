@@ -173,6 +173,7 @@
       ui.$('table-pane').hidden = mode !== 'table';
       ui.$('list-pane').hidden = mode === 'table';
       ui.$('add-tools').hidden = viewing();
+      ui.$('plan-more').hidden = data.planMore !== true; // 定型タスクの予定を上限で切ったとき（計画 stage2-task-plan-ahead-plan.md 3-2）
       renderNotify();
       renderSide();
       renderQueue();
@@ -344,7 +345,7 @@
         display: function (r, c) {
           var x = cellOf(r, c);
           if (x.kind === 'no') return x.n ? String(x.n) : '';
-          if (x.kind === 'task' || x.kind === 'mark') return TV.cellText(x, data);
+          if (x.kind === 'task' || x.kind === 'mark' || x.kind === 'plan') return TV.cellText(x, data);
           if (x.kind === 'memo') return x.first ? memoText(x.date) : '';
           return '';
         },
@@ -358,7 +359,7 @@
         cellState: function (r, c) {
           var x = cellOf(r, c), row = rows[r];
           var edge = (row.first ? ' blk-top' : '') + (row.idx % 2 ? ' stripe' : '') + (c >= 1 && c <= cols.length && cols[c - 1].employeeId === me.employeeId ? ' mine' : '');
-          if (x.kind === 'task' || x.kind === 'mark') {
+          if (x.kind === 'task' || x.kind === 'mark' || x.kind === 'plan') {
             var d = x.kind === 'task' ? TV.due(x.it, data) : null;
             return { cls: TV.cls(x) + edge + (d ? ' due-' + d.level : ''), title: TV.fullText(x, data) };
           }
@@ -432,7 +433,7 @@
       var s = grid.selection();
       if (!rows[s.r2]) return null;
       var x = cellOf(s.r2, s.c2);
-      return x.kind === 'task' || x.kind === 'mark' ? x : null;
+      return x.kind === 'task' || x.kind === 'mark' || x.kind === 'plan' ? x : null; // 予定も下の帯に全文を出す（道具のボタンはタスクだけ）
     }
     function selectedTask() { var e = selectedEntry(); return e && e.kind === 'task' ? e.it : null; }
 
@@ -456,7 +457,7 @@
       set('t-down', it && it.can.move && !!TV.moveArgs(data, it, 1));
       set('t-delete', it && it.can.del);
       ui.$('t-today').disabled = loading;
-      ui.$('sel-info').textContent = e ? '選んでいるタスク: ' + TV.fullText(e, data) : '';
+      ui.$('sel-info').textContent = e ? (e.kind === 'plan' ? '選んでいる予定: ' : '選んでいるタスク: ') + TV.fullText(e, data) : '';
     }
 
     // ------------------------------------------------------------------ 日付ごとの一覧（スマホ）
@@ -480,6 +481,8 @@
       var over = list.filter(function (e) { var d = e.kind === 'task' ? TV.due(e.it, data) : null; return d && d.level === 'over'; }).length;
       var title = p.name + (mine ? '（自分）' : '') + (p.active ? '' : '（利用停止）');
       var count = n.total ? '残り ' + n.open + ' ／ 全 ' + n.total + ' 件' : 'タスクなし';
+      var planN = TV.planCount(list);
+      if (planN) count += '・予定 ' + planN;
       if (!mine && urgent) count += '・急ぎ ' + urgent;
       if (!mine && over) count += '・〆過ぎ ' + over;
       var head = mine
@@ -491,9 +494,15 @@
       if (!open) return sec;
       var ul = ui.el('ul', { class: 'tk-list' });
       var live = list.filter(function (e) { return e.kind === 'task' && e.it.state === '未完了'; });
-      var rest = list.filter(function (e) { return !(e.kind === 'task' && e.it.state === '未完了'); });
+      // 定型タスクの予定は、残っているタスクの下に見出しを付けて出す（たたみの中には入れない。計画 stage2-task-plan-ahead-plan.md 3-2）
+      var plans = list.filter(function (e) { return e.kind === 'plan'; });
+      var rest = list.filter(function (e) { return e.kind !== 'plan' && !(e.kind === 'task' && e.it.state === '未完了'); });
       live.forEach(function (e) { ul.appendChild(rowOf(e)); });
       if (!list.length) ul.appendChild(ui.el('li', { class: 'tk-empty sub', text: 'この日のタスクはありません' }));
+      if (plans.length) {
+        ul.appendChild(ui.el('li', { class: 'tk-plan-head sub', text: '当日に入る定型タスク（予定）' }));
+        plans.forEach(function (e) { ul.appendChild(rowOf(e)); });
+      }
       if (rest.length) {
         var shown = !!openDone[p.employeeId];
         var done = rest.filter(function (e) { return e.kind === 'task' && e.it.state === '完了'; }).length;

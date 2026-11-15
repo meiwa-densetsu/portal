@@ -292,6 +292,8 @@ textarea:focus-visible { outline: 3px solid var(--c-primary); outline-offset: 2p
   .cards-only { display: none; }
   dialog .dialog-buttons { flex-direction: row-reverse; }
   dialog .dialog-buttons > * { flex: 1 1 0; }
+  /* ボタンが多いとき: 横 1 列に詰めず、文字が横 1 行に入る幅で何段かに分ける（主のボタンが左上） */
+  dialog .dialog-buttons.many { display: grid; grid-template-columns: repeat(auto-fit, minmax(11em, 1fr)); }
 }
 
 /* ---------- 日報の表（手順7。計画 stage1-step7-plan.md 2-4）---------- */
@@ -424,6 +426,9 @@ button.person-head { cursor: pointer; }
 .tk-row.tk-cancel .tk-text { color: var(--c-sub); text-decoration: line-through; }
 .tk-row.tk-mark .tk-text { color: var(--c-ok); }
 .tk-row.tk-urgent .tk-text { font-weight: 700; }
+/* 定型タスクの予定（計画 stage2-task-plan-ahead-plan.md 3-4）: 薄い字と「予定」の印で分ける。押せない */
+.tk-row.tk-plan .tk-text, .grid-cell.tk-plan { color: var(--c-sub); }
+.tk-plan-head { padding: var(--sp-1) var(--sp-3); border-top: 1px dashed var(--c-line-strong); }
 .tk-empty { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--c-line); }
 .tk-fold { border-top: 1px dashed var(--c-line-strong); }
 .fold-btn { width: 100%; min-height: var(--tap); margin: 0; padding: var(--sp-1) var(--sp-3); border: 0; background: transparent; color: var(--c-danger); font: inherit; font-size: var(--fs-small); text-align: left; cursor: pointer; }

@@ -95,6 +95,8 @@
    * ダイアログ。o: { title, text（文字。改行はそのまま出る）, body（要素。text の代わり・追加）, buttons: [{ label, value, kind }], dismiss }
    * 押されたボタンの value を返す。Esc で閉じたときは o.dismiss（無ければ null）
    */
+  var DIALOG_ROW_MAX = 3; // パソコンの幅で、横 1 列に並べるボタンの数の限り（超えたら何段かに分ける）
+
   function dialog(o) {
     return new Promise(function (resolve) {
       var d = el('dialog', { 'aria-labelledby': 'dlg-title' });
@@ -102,8 +104,10 @@
       d.appendChild(el('h2', { id: 'dlg-title', text: o.title }));
       if (o.text) d.appendChild(el('p', { class: 'dialog-body', text: o.text }));
       if (o.body) d.appendChild(o.body);
-      var box = el('div', { class: 'dialog-buttons' });
-      (o.buttons || [{ label: '閉じる', value: true, kind: 'primary' }]).forEach(function (b) {
+      var list = o.buttons || [{ label: '閉じる', value: true, kind: 'primary' }];
+      // ボタンが多いとき（タスクのメニューなど）は、横 1 列に詰めずに何段かに分ける（細くなって文字が縦に並ぶのを防ぐ）
+      var box = el('div', { class: 'dialog-buttons' + (list.length > DIALOG_ROW_MAX ? ' many' : '') });
+      list.forEach(function (b) {
         box.appendChild(el('button', {
           type: 'button', class: 'btn' + (b.kind ? ' ' + b.kind : ''), text: b.label,
           on: { click: function () { result = b.value; d.close(); } },
