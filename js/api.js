@@ -157,6 +157,7 @@
         out.fail.status = info.status;
         out.fail.host = info.host;
         out.fail.redirected = info.redirected;
+        try { Object.defineProperty(out.fail, 'res', { value: out.res }); } catch (e) { /* 付けられなくても続ける */ } // この試しの答え（remember が控えを付ける先）
       }
       return out;
     });
@@ -171,13 +172,24 @@
 
   /** 2 回とも駄目（または送り直さない処理で駄目）だったときの控えを残す（「詳しく」で出す） */
   function remember(action, fails, retried) {
-    MP.store.addNetLog({
+    var rec = {
       at: Date.now(), action: String(action), retried: !!retried,
       tries: fails.map(function (f) {
         return { kind: f.kind, ms: Math.round(f.ms || 0), status: Number(f.status) || 0, host: String(f.host || ''), redirected: !!f.redirected,
           page: PAGE_KIND[f.page] ? f.page : '' };
       }),
-    });
+    };
+    MP.store.addNetLog(rec);
+    // 最後の試しの答え（呼んだ側へ返る答え）に、この控えを付ける
+    var last = fails[fails.length - 1];
+    if (last && last.res) withRecord(last.res, rec);
+    return rec;
+  }
+
+  /** 答えに、その失敗の「詳しく」の控えを付ける（画面には出ない項目。report.js が決まった値だけを写す。計画 stage2-error-report-plan.md 第8章） */
+  function withRecord(res, rec) {
+    if (res && typeof res === 'object') { try { Object.defineProperty(res, 'netRecord', { value: rec, configurable: true, writable: true }); } catch (e) { /* 付けられなくても続ける */ } }
+    return res;
   }
 
   /**
@@ -223,6 +235,31 @@
     if (['VIEW_ONLY', 'NETWORK', 'BUSY', 'INTERNAL'].indexOf(res.code) >= 0) return res;
     MP.store.clearViewAs();
     return res;
+  }
+
+  /*
+   * 管理者に知らせる（計画 stage2-error-report-plan.md 2-1・2-3）のための控え。
+   *   meSeen … このページで成功した答えの me の社員ID（見ている間の答えは覚えない）。押した人を決めるのに使う（認証・認可には使わない）
+   *   失敗 … ボタンを出すエラーなら report.js の「最近の失敗」に足す（system.report そのもの・raw の RELOAD は足さない）
+   */
+  var meSeen = null; // { id, mark, temp }
+  function track(action, res, raw) {
+    if (!res || typeof res !== 'object') return res;
+    if (res.ok) {
+      var me = res.me;
+      if (me && typeof me === 'object' && !me.viewAs && typeof me.employeeId === 'string' && /^E\d{4}$/.test(me.employeeId) &&
+        res.sentMark && res.sentMark === MP.store.tokenMark()) {
+        meSeen = { id: me.employeeId, mark: res.sentMark, temp: me.mustChangePassword === true };
+      }
+      return res;
+    }
+    if (action === 'system.report' || (raw && res.code === 'RELOAD')) return res;
+    if (MP.report && MP.report.noteFailure) { try { MP.report.noteFailure(action, res); } catch (e) { /* 知らせの準備の失敗で画面を止めない */ } }
+    return res;
+  }
+  /** このページで覚えた自分の社員ID（今のログインのものだけ）。temp … 仮パスワードのまま */
+  function seenMe() {
+    return meSeen && meSeen.mark === MP.store.tokenMark() ? { id: meSeen.id, temp: meSeen.temp } : null;
   }
 
   var leaveFns = []; // 共通の扱いが画面を移す直前に呼ぶ関数（MP.api.onLeave）
@@ -282,6 +319,7 @@
         var unknown = !res.ok && (res.code === 'NETWORK' || res.code === 'INTERNAL' || res.code === 'BUSY');
         if (!unknown && last === mine) last = null;
         if (!res.ok && res.code === 'NETWORK') res.message = SAVE_UNKNOWN_TEXT;
+        if (!res.ok && res.failure) res.failure.message = res.message; // 管理者に知らせる「最近の失敗」も、画面に出す文に合わせる
         return res;
       });
     };
@@ -293,6 +331,7 @@
     NETWORK_TEXT: NETWORK_TEXT,
     pageKind: pageKind, // 答えのページの分類（試験で表の例を流すため。決まった言葉の鍵だけを返す）
     SAVE_UNKNOWN_TEXT: SAVE_UNKNOWN_TEXT,
+    seenMe: seenMe,
     /** 「詳しく」で出す文（控えが無ければ空）。新しい順に、最近の 3 回まで */
     netLogText: function () {
       var list = MP.store.netLog().slice(-3).reverse();
@@ -320,14 +359,14 @@
       var sentMark = MP.store.tokenMark();
       var p = sendWithRetry(action, args, o.requestId || newRequestId(), sentAs, sentMark).then(function (res) { return checkViewAs(res, sentAs); })
         .then(function (res) { if (res && typeof res === 'object') res.sentMark = sentMark; return res; });
-      if (o.raw) return p;
+      if (o.raw) return p.then(function (res) { return track(action, res, true); });
       return p.then(function (res) {
         // 送ってから答えが届くまでに、ほかのタブでログインが替わった（ログインし直し・ログアウト）→ その答えは前のログインのもの。
         // 画面に出さず、共通の扱い（UNAUTHORIZED で今のログインを消すなど）もせず、今のログインで開き直す（版 19 の Codex 実装レビュー 1 回目 high・medium）
         if (sentMark !== MP.store.tokenMark()) { leaving(); window.location.reload(); return never(); }
         // keep … その code だけは共通の扱い（画面を移る）をせず、答えをそのまま返す（タスクの列の FORBIDDEN。計画 stage2-task-speed-plan.md 3-6）
         return !res.ok && Array.isArray(o.keep) && o.keep.indexOf(res.code) >= 0 ? res : common(res);
-      });
+      }).then(function (res) { return track(action, res, false); });
     },
     /** 共通の扱いが画面を移す直前に呼ぶ関数を足す（送り残しの「離れますか」を止めるため。計画 第5章） */
     onLeave: function (fn) { leaveFns.push(fn); },

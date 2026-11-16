@@ -45,6 +45,7 @@
             }
             if (r.code === 'NETWORK') {
               ui.pageMessage('登録できたか分かりません。もう一度押して「使えません」と出たら、登録済みの端末から追加コードを出すか、管理者に招待の再発行を頼んでください', 'error');
+              if (MP.report) MP.report.attach(r); // 文を書き換えて出したので、その失敗のボタンをつなぐ
             } else if (r.code === 'BAD_REQUEST') {
               ui.fieldError(input, r.message);
             } else {

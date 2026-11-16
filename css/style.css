@@ -148,6 +148,11 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--c-
 .msg.ok { background: var(--c-ok-weak); border-color: var(--c-ok); color: var(--c-ok); }
 /* 通信の失敗の一言の下の「詳しく」と、その中身（写真で送れるように、折り返して全部出す） */
 .msg-detail { margin-top: var(--sp-2); }
+/* 管理者に知らせるボタン（#msg のすぐ後ろ・タスクの送れなかった窓の中）と、押した後の一言 */
+.report-box { margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); }
+.report-view { margin-top: var(--sp-2); max-width: 100%; }
+.report-view .btn { max-width: 100%; }
+.report-note { margin: var(--sp-2) 0 0; font-size: var(--fs-small); overflow-wrap: anywhere; }
 .net-detail-text { margin: var(--sp-3) 0 0; padding: var(--sp-3); border: 1px solid var(--c-line); border-radius: var(--radius); background: var(--c-bg);
   font: inherit; font-size: var(--fs-small); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
 

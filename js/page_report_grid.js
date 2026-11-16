@@ -346,6 +346,7 @@
             var unknown = res.code === 'NETWORK' || res.code === 'INTERNAL' || res.code === 'BUSY';
             if (unknown) send.forEach(function (s) { s.x.status = 'unknown'; }); // 同じ requestId のまま次の「保存」で送り直す
             ui.pageMessage(unknown ? '保存できたか分かりません。もう一度「保存」を押してください（同じ内容は二重になりません）' : res.message, 'error');
+            if (MP.report) MP.report.attach(res); // 文を書き換えて出す場合も、その失敗のボタンをつなぐ
             after();
             return;
           }

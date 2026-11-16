@@ -39,6 +39,8 @@
     box.className = 'msg ' + (kind || 'error');
     box.hidden = !text;
     addNetDetail(box, text);
+    // 管理者に知らせるボタン（#msg のすぐ後ろ。「詳しく」の後ろ。文が同じ最近の失敗があるときだけ。計画 stage2-error-report-plan.md 2-1）
+    if (MP.report && MP.report.onMessage) { try { MP.report.onMessage(box, text, kind || 'error'); } catch (e) { /* ボタンが出せなくても文は出す */ } }
     if (text && box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
   }
 
@@ -190,6 +192,27 @@
     return os && br ? os + '・' + br : os || br;
   }
 
+  /**
+   * 端末の種類の要約（管理者に知らせる中身。例「iPhone iOS 18.7・Safari・ホーム画面」）。userAgent の全文は返さない。60 字まで
+   * guessDeviceName の名前に、OS の版の数字と、ホーム画面のアイコンから開いたかを足す
+   */
+  function deviceSummary() {
+    var ua = navigator.userAgent || '';
+    var m, ver = '';
+    if ((m = /(?:iPhone|iPad|iPod)[^)]*? OS (\d{1,2})_(\d{1,2})/.exec(ua))) ver = 'iOS ' + m[1] + '.' + m[2];
+    else if ((m = /Android (\d{1,2}(?:\.\d{1,2})?)/.exec(ua))) ver = m[1];
+    else if ((m = /Windows NT (\d{1,2}\.\d)/.exec(ua))) ver = 'NT ' + m[1];
+    else if ((m = /Mac OS X (\d{1,2})[_.](\d{1,2})/.exec(ua))) ver = 'macOS ' + m[1] + '.' + m[2];
+    var name = guessDeviceName();
+    var parts = name ? name.split('・') : [];
+    // 機種の名前が分かるときだけ版を足す（名前が分からない端末は、版の数字だけを送らない）
+    var head = parts.length && /^(iPhone|iPad|Android|Windows|Mac)$/.test(parts[0]) ? parts[0] + (ver ? ' ' + ver : '') : (parts[0] || '');
+    var standalone = navigator.standalone === true;
+    try { standalone = standalone || (!!window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch (e) { /* 分からなければ偽 */ }
+    var out = [head].concat(parts.slice(1)).filter(Boolean).join('・') + (standalone ? '・ホーム画面' : '');
+    return Array.from(out || '不明').slice(0, 60).join('');
+  }
+
   /** iPhone・iPad の Safari で、ホーム画面のアイコンから開いていないとき */
   function iosNotStandalone() {
     var ua = navigator.userAgent || '';
@@ -200,6 +223,6 @@
   MP.ui = {
     $: $, el: el, clear: clear, pageMessage: pageMessage, showFlash: showFlash, fieldError: fieldError, clearFieldErrors: clearFieldErrors,
     run: run, dialog: dialog, confirm: confirm, notice: notice, fmtDateTime: fmtDateTime, fmtTime: fmtTime, fmtDate: fmtDate,
-    guessDeviceName: guessDeviceName, iosNotStandalone: iosNotStandalone,
+    guessDeviceName: guessDeviceName, deviceSummary: deviceSummary, iosNotStandalone: iosNotStandalone,
   };
 })();

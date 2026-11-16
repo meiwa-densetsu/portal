@@ -13,6 +13,9 @@
  *   mp.remind.done localStorage                知らせ済みの印（{ 鍵: 時刻 }。鍵は タスクID|日付|時刻|種類。**内容は入れない**。3 日で捨てる。ログアウトでは消さない＝同じ知らせをもう一度出さない）
  *   mp.viewAs     sessionStorage  管理者が見ている社員の画面（そのタブだけ）
  *   mp.netlog     sessionStorage  通信が駄目だったときの控え（時刻・処理の名前・答えの番号・ホスト名・答えのページの分類（決まった言葉）だけ。本文の文字・token・args は入れない。ログアウトで消す）
+ *   mp.report.pending  localStorage（通常のログイン中・ログインの前に押した）／sessionStorage（共有のログイン中に押した）
+ *                  管理者に知らせる（report.js）の、まだ送れていない控え（[{ rid, id: 押したときの社員ID か空, at, report }]。report は計画 stage2-error-report-plan.md 2-2 の形だけ）。
+ *                  どちらの領域も 3 件まで・3 日まで。clearToken は sessionStorage の分だけを消す（localStorage の分は、送るときに社員を見る。同 2-4）
  *   mp.flash / mp.inviteName / mp.reloaded  sessionStorage  次の画面に1回だけ渡す文・名前、読み込み直しの印（秘密ではない）
  *   mp_bulk_pending:<社員ID>:<requestId>  localStorage  まとめて登録の、結果の分からない保存の記録（page_admin_bulk.js。送る処理と中身〔名前・生年月日・入社日を含む〕）。
  *                  結果がはっきりしたら消す。ログアウトでは消さない（次に開いたときに同じ requestId で送り直すため）。そのため「他の人も使う」のログインでは、まとめて登録を使わせない
@@ -24,7 +27,10 @@
   'use strict';
   var MP = window.MP = window.MP || {};
   var K = { viewAs: 'mp.viewAs', deviceKey: 'mp.deviceKey', deviceName: 'mp.deviceName', token: 'mp.token', lastLoginId: 'mp.lastLoginId', timings: 'mp.timings',
-    flash: 'mp.flash', inviteName: 'mp.inviteName', reloaded: 'mp.reloaded', me: 'mp.me', taskView: 'mp.view.tasks', remind: 'mp.remind', remindDone: 'mp.remind.done', netLog: 'mp.netlog' };
+    flash: 'mp.flash', inviteName: 'mp.inviteName', reloaded: 'mp.reloaded', me: 'mp.me', taskView: 'mp.view.tasks', remind: 'mp.remind', remindDone: 'mp.remind.done', netLog: 'mp.netlog', reportPending: 'mp.report.pending' };
+  var REPORT_PENDING_MAX = 3;                  // 管理者に知らせる控えの数の上限（領域ごと。新しいものを残す）
+  var REPORT_PENDING_KEEP_MS = 3 * 86400000;   // 控えを残す長さ（3 日）
+  var RID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   var NETLOG_MAX = 5;           // 通信の控えの数の上限
   var REMIND_DONE_KEEP_MS = 3 * 86400000; // 知らせ済みの印を残す長さ
   var REMIND_DONE_MAX = 2000;             // 印の数の上限（古いものから捨てる）
@@ -99,7 +105,50 @@
       sealed = true; // 初めに立てる（この後に来る pagehide などで控えを書き直さない）
       del(L(), K.token); del(S(), K.token); del(S(), K.viewAs); // 見ている印も消す（残るとログインの依頼に viewAs が付いて断られる）
       wipe(L(), K.me); wipe(S(), K.me); wipe(L(), K.taskView); wipe(S(), K.taskView); wipe(S(), K.remind); wipe(S(), K.netLog);
+      MP.store.clearReportShared(); // 知らせの控えは、共有のログイン中に押した分（sessionStorage）だけ消す。localStorage の分は残す（計画 stage2-error-report-plan.md 2-4）
     },
+
+    /*
+     * 管理者に知らせる控え（計画 stage2-error-report-plan.md 2-4）。形の違うもの・3 日より古いもの・未来すぎるものは捨てる。
+     * 返すもの: 古い順の [{ rid, id, at, report, shared }]（shared … sessionStorage の分）
+     */
+    reportPending: function () {
+      var now = Date.now();
+      var read = function (a, shared) {
+        var list = parse(get(a, K.reportPending));
+        if (!Array.isArray(list)) { if (get(a, K.reportPending)) wipe(a, K.reportPending); return []; }
+        var ok = list.filter(function (x) {
+          return !!x && typeof x === 'object' && typeof x.rid === 'string' && RID.test(x.rid) && typeof x.id === 'string' && (x.id === '' || /^E\d{4}$/.test(x.id)) &&
+            typeof x.at === 'number' && isFinite(x.at) && now - x.at <= REPORT_PENDING_KEEP_MS && x.at - now <= 60000 &&
+            !!x.report && typeof x.report === 'object' && !Array.isArray(x.report);
+        });
+        // 古い・形の違う控えは、読むときに捨てる（送らずに消す）
+        if (ok.length !== list.length) { if (ok.length) set(a, K.reportPending, JSON.stringify(ok)); else wipe(a, K.reportPending); }
+        return ok.map(function (x) { return { rid: x.rid, id: x.id, at: x.at, report: x.report, shared: shared }; });
+      };
+      return read(L(), false).concat(read(S(), true)).sort(function (a, b) { return a.at - b.at; });
+    },
+    /** 控えを足す（shared なら sessionStorage）。その領域の 3 日より古いものを捨て、新しい 3 件だけ残す。書けなければ偽 */
+    addReportPending: function (item, shared) {
+      var mine = MP.store.reportPending().filter(function (x) { return x.shared === !!shared && x.rid !== item.rid; });
+      mine.push({ rid: item.rid, id: item.id, at: item.at, report: item.report });
+      var keep = mine.slice(-REPORT_PENDING_MAX).map(function (x) { return { rid: x.rid, id: x.id, at: x.at, report: x.report }; });
+      var text;
+      try { text = JSON.stringify(keep); } catch (e) { return false; }
+      if (!set(shared ? S() : L(), K.reportPending, text)) return false;
+      return MP.store.reportPending().some(function (x) { return x.rid === item.rid; });
+    },
+    /** 控えから外す（両方の領域から） */
+    removeReportPending: function (rid) {
+      var all = MP.store.reportPending();
+      [[L(), false], [S(), true]].forEach(function (p) {
+        var rest = all.filter(function (x) { return x.shared === p[1] && x.rid !== rid; })
+          .map(function (x) { return { rid: x.rid, id: x.id, at: x.at, report: x.report }; });
+        if (rest.length) set(p[0], K.reportPending, JSON.stringify(rest)); else wipe(p[0], K.reportPending);
+      });
+    },
+    /** 共有のログイン中に押した控え（sessionStorage）を消す */
+    clearReportShared: function () { wipe(S(), K.reportPending); },
 
     /** 通信が駄目だったときの控え（「詳しく」で出す。新しいものが後ろ。最近の NETLOG_MAX 回まで）。形が違えば空 */
     netLog: function () {

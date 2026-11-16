@@ -99,7 +99,7 @@
         if (my !== loadSeq) return false; // 古い答え
         me = r.me;
         // 控えを出している間に読めなかった: 止めたまま（loading を下ろさない）にして、一言だけ変える
-        if (!r.res.ok && stale) { staleFailed(); ui.pageMessage(r.res.message + '\n画面を読み込み直してください', 'error'); return false; }
+        if (!r.res.ok && stale) { staleFailed(); ui.pageMessage(r.res.message + '\n画面を読み込み直してください', 'error'); if (MP.report) MP.report.attach(r.res); return false; }
         setLoading(false);
         if (!r.res.ok) { // 読めなければ、今出している月と日に戻す（月の移動で day を空にしていても。Codex 実装5回目 medium）
           if (data) { ym = data.month; day = shownDay; render(); }
@@ -1214,6 +1214,8 @@
           btns.push(button('閉じる', function () { recover(function () { dropPending([op]); dropUndoOf([op]); failed = null; }, pump); }));
         }
         f.appendChild(ui.el('div', { class: 'item-actions' }, btns));
+        // 結果が分からない（通信・サーバーの具合）ときだけ、管理者に知らせるボタン（計画 stage2-error-report-plan.md 2-1）
+        if (failed.kind === 'unknown' && failed.report && MP.report) f.appendChild(MP.report.button(failed.report));
         if (f.scrollIntoView) f.scrollIntoView({ block: 'nearest' });
       }
       if (mode === 'table' && grid) updateTools(); // 送っている間・止まっている間は、操作のボタンを止める
@@ -1274,7 +1276,7 @@
         current = null;
         if (!res.ok) {
           var unknown = res.code === 'NETWORK' || res.code === 'BUSY' || res.code === 'INTERNAL';
-          failed = { op: op, kind: unknown ? 'unknown' : res.code === 'CONFLICT' ? 'conflict' : 'refused', message: res.message || '送れませんでした' };
+          failed = { op: op, kind: unknown ? 'unknown' : res.code === 'CONFLICT' ? 'conflict' : 'refused', message: res.message || '送れませんでした', report: res.failure || null };
           // 断られた・競合: その操作を描く姿にかけない＝すぐ元の姿に戻る。完了の帯がその操作なら消す（3-6）
           if (!unknown) dropUndoOf([op]);
           rebuildView();

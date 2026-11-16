@@ -34,6 +34,7 @@
                 ui.pageMessage(r.code === 'NETWORK'
                   ? '登録できたか分かりません。もう一度押して「使えません」と出たら、登録済みの端末から追加コードを出し直してください'
                   : r.message, 'error');
+                if (MP.report) MP.report.attach(r); // 文を書き換えて出す場合も、その失敗のボタンをつなぐ
               });
             });
           });

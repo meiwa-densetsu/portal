@@ -327,7 +327,7 @@
         ui.pageMessage('');
         ui.run(function () {
           return MP.api.call('auth.admin.status', {}).then(function (st) {
-            if (!st.ok) { ui.pageMessage('端末の一覧を読めなかったので、利用停止をしていません。もう一度押してください（' + st.message + '）', 'error'); return; }
+            if (!st.ok) { ui.pageMessage('端末の一覧を読めなかったので、利用停止をしていません。もう一度押してください（' + st.message + '）', 'error'); if (MP.report) MP.report.attach(st); return; }
             var mine = st.data.devices.filter(function (d) { return d.registeredById === e.employeeId && !d.revokedAt; });
             var current = mine.filter(function (d) { return d.deviceRef === st.data.currentDeviceRef; })[0] || null;
             var boxes = [];
@@ -352,7 +352,7 @@
               if (!yes) return;
               var refs = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
               return save('auth.admin.suspend', { employeeId: currentId, revokeDevices: refs }).then(function (r) {
-                if (!r.ok) { ui.pageMessage(r.code === 'NETWORK' ? 'できたか分かりません。もう一度同じボタンを押してください' : r.message, 'error'); return; }
+                if (!r.ok) { ui.pageMessage(r.code === 'NETWORK' ? 'できたか分かりません。もう一度同じボタンを押してください' : r.message, 'error'); if (MP.report) MP.report.attach(r); return; }
                 var n = r.data && typeof r.data.revokedDevices === 'number' ? r.data.revokedDevices : 0; // 実際に取り消した数（先にほかの管理者が取り消していれば減る）
                 var done = '利用停止にしました' + (n ? '（端末 ' + n + ' 台を取り消しました）' : '');
                 if (r.data && r.data.keptCurrentDevice) {
@@ -372,7 +372,7 @@
           ui.pageMessage('');
           ui.run(function () {
             return save(action, { employeeId: currentId }).then(function (r) {
-              if (!r.ok) { ui.pageMessage(r.code === 'NETWORK' ? 'できたか分かりません。もう一度同じボタンを押してください' : r.message, 'error'); return; }
+              if (!r.ok) { ui.pageMessage(r.code === 'NETWORK' ? 'できたか分かりません。もう一度同じボタンを押してください' : r.message, 'error'); if (MP.report) MP.report.attach(r); return; }
               return reload(doneText);
             });
           });
@@ -392,6 +392,7 @@
             return MP.api.call('auth.admin.issueInvite', { employeeId: e.employeeId, resetPassword: reset }).then(function (r) {
               if (!r.ok) {
                 ui.pageMessage(r.code === 'NETWORK' ? '出せたか分かりません。もう一度押してください。前に出たものは使わないでください' : r.message, 'error');
+                if (MP.report) MP.report.attach(r);
                 return;
               }
               return r.data;

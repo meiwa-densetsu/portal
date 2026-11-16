@@ -19,7 +19,10 @@
             if (!yes) return;
             ui.run(function () {
               return MP.api.call('auth.admin.revokeDevice', { deviceRef: d.deviceRef }).then(function (r) {
-                if (!r.ok) ui.pageMessage(r.code === 'NETWORK' ? '取消できたか分かりません。一覧を確かめて、残っていたらもう一度押してください' : r.message, 'error');
+                if (!r.ok) {
+                  ui.pageMessage(r.code === 'NETWORK' ? '取消できたか分かりません。一覧を確かめて、残っていたらもう一度押してください' : r.message, 'error');
+                  if (MP.report) MP.report.attach(r); // 文を書き換えて出す場合も、その失敗のボタンをつなぐ
+                }
                 return load();
               });
             });

@@ -61,6 +61,7 @@
       return endSave('auth.admin.viewAsEnd', { employeeId: v.employeeId }).then(function (res) {
         if (!res.ok && (res.code === 'NETWORK' || res.code === 'BUSY' || res.code === 'INTERNAL')) {
           ui.pageMessage('終わりを記録できたか分かりません。もう一度「終わる」を押してください', 'error');
+          if (MP.report) MP.report.attach(res); // 文を書き換えて出したので、その失敗のボタンをつなぐ
           return;
         }
         MP.store.clearViewAs();
@@ -139,6 +140,7 @@
         // 保管済みの月（3 年より前）を住所やお気に入りから直接開いた: 読み込み直しても開けないので、ホームへ戻して一言だけ出す
         if (res.code === 'ARCHIVED') { MP.store.setFlash(res.message); MP.go('home.html'); return never; }
         MP.ui.pageMessage(res.message + '\n画面を読み込み直してください', 'error');
+        if (MP.report) MP.report.attach(res); // 文を書き換えて出したので、その失敗のボタンをつなぐ
         if (o.onFail) o.onFail(res);
         return never;
       }

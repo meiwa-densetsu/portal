@@ -8,6 +8,8 @@
   'use strict';
   var MP = window.MP = window.MP || {};
 
+  // 画面の表示中の問題の文（2 つの失敗の道で、管理者に知らせる「最近の失敗」と画面の一言の両方に、この 1 つを渡す。計画 stage2-error-report-plan.md 2-1）
+  var SCREEN_TEXT = '画面の表示中に問題が起きました。読み込み直してください';
   var framed;
   try { framed = window.top !== window.self; } catch (e) { framed = true; }
 
@@ -35,9 +37,14 @@
         document.body.hidden = false;
         try {
           var r = fn();
-          if (r && typeof r.then === 'function') r.then(null, function () { MP.ui && MP.ui.pageMessage('画面の表示中に問題が起きました。読み込み直してください', 'error'); });
+          // 例外の中身・スタックは送らない・残さない（画面のコードや入力が混ざるかもしれないため）
+          if (r && typeof r.then === 'function') r.then(null, function () {
+            if (MP.report) MP.report.screenFailure(SCREEN_TEXT);
+            if (MP.ui) MP.ui.pageMessage(SCREEN_TEXT, 'error');
+          });
         } catch (e) {
-          if (MP.ui) MP.ui.pageMessage('画面の表示中に問題が起きました。読み込み直してください', 'error');
+          if (MP.report) MP.report.screenFailure(SCREEN_TEXT);
+          if (MP.ui) MP.ui.pageMessage(SCREEN_TEXT, 'error');
         }
       };
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);

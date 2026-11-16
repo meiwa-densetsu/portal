@@ -27,7 +27,10 @@
         return ui.run(function () {
           return MP.api.call('auth.issueDeviceCode', { deviceName: deviceName }).then(function (r) {
             if (r.ok) { showCode(r.data); return load(); }
-            if (r.code === 'NETWORK') ui.pageMessage('コードを出せたか分かりません。もう一度押してください。前に出たものは使わないでください', 'error');
+            if (r.code === 'NETWORK') {
+              ui.pageMessage('コードを出せたか分かりません。もう一度押してください。前に出たものは使わないでください', 'error');
+              if (MP.report) MP.report.attach(r); // 文を書き換えて出したので、その失敗のボタンをつなぐ
+            }
             else if (r.code === 'BAD_REQUEST') ui.fieldError(input, r.message);
             else ui.pageMessage(r.message, 'error');
           });
