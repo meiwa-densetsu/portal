@@ -13,6 +13,9 @@
  *   mp.viewAs     sessionStorage  管理者が見ている社員の画面（そのタブだけ）
  *   mp.netlog     sessionStorage  通信が駄目だったときの控え（時刻・処理の名前・答えの番号・ホスト名・答えのページの分類（決まった言葉）だけ。本文の文字・token・args は入れない。ログアウトで消す）
  *   mp.flash / mp.inviteName / mp.reloaded  sessionStorage  次の画面に1回だけ渡す文・名前、読み込み直しの印（秘密ではない）
+ *   mp_bulk_pending:<社員ID>:<requestId>  localStorage  まとめて登録の、結果の分からない保存の記録（page_admin_bulk.js。送る処理と中身〔名前・生年月日・入社日を含む〕）。
+ *                  結果がはっきりしたら消す。ログアウトでは消さない（次に開いたときに同じ requestId で送り直すため）。そのため「他の人も使う」のログインでは、まとめて登録を使わせない
+ *   mp_bulk_storage_check  localStorage  まとめて登録の、記録できるかの試し（書いてすぐ消す）
  *
  * パスワード・仮パスワード・招待の文字列・追加コードは保存しない
  */

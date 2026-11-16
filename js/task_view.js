@@ -9,7 +9,8 @@
  *   MP.taskView.tags(it, data)               … 行に付ける印の文字の並び（依頼: 名前・新・🔒・↻3）
  *   MP.taskView.cellText(e, data)            … 月の表のマスに出す文字（番号以外をつないだもの）
  *   MP.taskView.fullText(e, data)            … 全文（選んだマスの帯・行のメニューに出す）
- *   MP.taskView.cls(e)                       … 状態の見た目の印（tk-done・tk-cancel・tk-mark・tk-urgent）
+ *   MP.taskView.cls(e)                       … 状態の見た目の印（tk-done・tk-cancel・tk-mark・tk-urgent・tk-pending）
+ * 月の表で打って足した直後の「保存中」の仮のタスク（it.pending。page_tasks.js）は、内容の後ろに「（保存中）」を付け、薄い字にする
  *   MP.taskView.people(data, deptId, meId)   … その部署に出す人（自分を先に。deptId が '' なら全員）
  *   MP.taskView.handovers(data, deptId, date)… その日・その部署に出す申し送り（新しい申し送り → 前のメモ）
  *   MP.taskView.summary(data, deptId, date)  … 部署のまとめ [{ employeeId, name, open, over, deferred }]
@@ -21,6 +22,7 @@
   function ct() { return (root && root.CalcTask) || globalThis.CalcTask; }
   var ALL = '全員';
   var PLAN_MARK = '〔予定〕';
+  var PENDING_MARK = '（保存中）';
 
   function md(d) { return Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)); }
 
@@ -87,6 +89,7 @@
     var it = e.it;
     if (e.kind === 'mark') return '→' + md(it.to) + 'へ先送り ' + it.content + (it.hidden ? ' 🔒' : '');
     if (e.kind === 'plan') return PLAN_MARK + planText(it);
+    if (it.pending) return it.content + PENDING_MARK;
     var u = ct().urgencyMark(it.urgency);
     var d = due(it, data);
     var t = tags(it, data);
@@ -97,6 +100,7 @@
     var it = e.it;
     if (e.kind === 'mark') return cellText(e, data) + '（先送りの印）';
     if (e.kind === 'plan') return cellText(e, data) + '（定型タスクの予定。当日にタスクとして入ります）';
+    if (it.pending) return (e.no ? e.no + '. ' : '') + it.content + PENDING_MARK;
     var parts = [it.state];
     var d = due(it, data);
     if (it.due) parts.push('締め切り ' + md(it.due) + (it.dueTime ? ' ' + Number(it.dueTime.slice(0, 2)) + ':' + it.dueTime.slice(3, 5) : '') + (d && d.level === 'over' ? '（過ぎています）' : ''));
@@ -112,6 +116,7 @@
   function cls(e) {
     if (e.kind === 'mark') return 'tk-mark';
     if (e.kind === 'plan') return 'tk-plan';
+    if (e.it.pending) return 'tk-pending';
     return (e.it.state === '完了' ? 'tk-done' : e.it.state === '取りやめ' ? 'tk-cancel' : '') + (e.it.urgency !== '通常' && e.it.state === '未完了' ? ' tk-urgent' : '');
   }
 
@@ -150,7 +155,9 @@
    * 件数が上限（rules.moveMax）を超える日も null。返す値: { ownerId, date, order, versions }
    */
   function moveArgs(data, it, dir) {
-    var list = ct().sortDay(data.items.filter(function (i) { return i.owner === it.owner && i.date === it.date; }));
+    // 保存中の仮のタスク（pending）は、まだサーバーに無いので並べ替えに入れない
+    var list = ct().sortDay(data.items.filter(function (i) { return i.owner === it.owner && i.date === it.date && !i.pending; }));
+    if (it.pending) return null;
     var max = data.rules && typeof data.rules.moveMax === 'number' ? data.rules.moveMax : 500;
     if (list.length > max) return null;
     var order = list.map(function (i) { return i.taskId; });
@@ -163,7 +170,7 @@
     return { ownerId: it.owner, date: it.date, order: order, versions: versions };
   }
 
-  var api = { ALL: ALL, PLAN_MARK: PLAN_MARK, planText: planText, planCount: planCount, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
+  var api = { ALL: ALL, PLAN_MARK: PLAN_MARK, PENDING_MARK: PENDING_MARK, planText: planText, planCount: planCount, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
     people: people, handovers: handovers, summary: summary, moveArgs: moveArgs, remindMark: remindMark, remindText: remindText, earlyText: earlyText, remindClock: remindClock };
   if (root) { root.MP = root.MP || {}; root.MP.taskView = api; }
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -55,7 +55,7 @@
       : ui.el('span', { class: 'tk-box-ro', text: done ? '✓' : cancelled ? '—' : '・' });
     var u = CT.urgencyMark(it.urgency);
     var main = ui.el('button', { type: 'button', class: 'tk-main', 'aria-label': 'くわしく: ' + it.content, disabled: o.disabled, on: { click: function () { o.onOpen(it, e.no); } } }, [
-      ui.el('span', { class: 'tk-text' }, [u ? ui.el('span', { class: 'tk-urg', text: u + ' ' }) : null, it.content, it.note && done ? '（' + it.note + '）' : '']),
+      ui.el('span', { class: 'tk-text' }, [u ? ui.el('span', { class: 'tk-urg', text: u + ' ' }) : null, it.content, it.note && done ? '（' + it.note + '）' : '', it.pending ? MP.taskView.PENDING_MARK : '']),
       tags(it, data),
       due(it, data),
     ]);

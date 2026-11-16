@@ -175,7 +175,7 @@
       var sched = d.companyScheduled === null ? '所定が分かりません（管理者に連絡してください）'
         : d.companyType === 'H' ? '休みの日（所定 0:00）' : '出勤日（所定 ' + fmt(d.companyScheduled) + '）';
       ui.$('form-sched').textContent = sched + (d.department ? '・' + d.department : '');
-      var note = !d.canCalc ? 'この日の社員の履歴（休憩方式）がありません。管理者に連絡してください'
+      var note = !d.canCalc ? 'この日の部署の休憩方式が決まっていません。管理者に連絡してください'
         : d.needsRecalc ? '計算の決まりが変わりました。管理者が計算し直します（今の数字は前の決まりのものです）' : '';
       ui.$('form-note').hidden = !note;
       ui.$('form-note').textContent = note;

@@ -10,18 +10,20 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=16">
-<script src="js/boot.js?v=16" defer></script>
-<script src="js/sw_register.js?v=16" defer></script>
-<script src="js/config.js?v=16" defer></script>
-<script src="js/store.js?v=16" defer></script>
-<script src="js/ui.js?v=16" defer></script>
-<script src="js/api.js?v=16" defer></script>
-<script src="js/guard.js?v=16" defer></script>
-<script src="gen/calc_task.js?v=16" defer></script>
-<script src="js/remind.js?v=16" defer></script>
-<script src="js/bulk.js?v=16" defer></script>
-<script src="js/page_admin_bulk.js?v=16" defer></script>
+<link rel="stylesheet" href="css/style.css?v=17">
+<script src="js/boot.js?v=17" defer></script>
+<script src="js/sw_register.js?v=17" defer></script>
+<script src="js/config.js?v=17" defer></script>
+<script src="js/store.js?v=17" defer></script>
+<script src="js/ui.js?v=17" defer></script>
+<script src="js/api.js?v=17" defer></script>
+<script src="js/guard.js?v=17" defer></script>
+<script src="gen/calc_task.js?v=17" defer></script>
+<script src="js/remind.js?v=17" defer></script>
+<script src="vendor/exceljs-4.4.0.min.js?v=17" defer></script>
+<script src="js/bulk.js?v=17" defer></script>
+<script src="js/bulk_book.js?v=17" defer></script>
+<script src="js/page_admin_bulk.js?v=17" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -29,7 +31,7 @@
 <div id="msg" class="msg error" role="alert" hidden></div>
 <div id="bulk" hidden>
   <h1>Excel でまとめて登録</h1>
-  <p class="sub">パソコンでの利用をおすすめします。部署を先に登録してから、社員を登録してください。表では、社員を消す・利用停止・招待はできません（社員の管理の画面で1人ずつ行います）。</p>
+  <p class="sub">パソコンでの利用をおすすめします。今の部署と社員を Excel のファイルで書き出し、書き足したファイルを読み込んで、まとめて登録します。ファイルでは、社員を消す・利用停止・招待はできません（社員の管理の画面で1人ずつ行います）。</p>
 
   <div id="pending" class="card" hidden>
     <h2>前回の続き</h2>
@@ -39,32 +41,32 @@
   </div>
 
   <div id="main">
-    <div class="tabs" role="tablist">
-      <button type="button" id="tab-dept" class="btn" role="tab" aria-selected="true">部署</button>
-      <button type="button" id="tab-emp" class="btn" role="tab" aria-selected="false">社員</button>
+    <div class="card">
+      <h2>1. 今の内容を Excel で書き出す</h2>
+      <p class="sub">「部署」と「社員」のシートが入ったファイルを作ります。権限・部署などは、マスの右の▼から選べます。入れ方は「書き方」のシートにあります。</p>
+      <p class="sub">ファイルには個人情報（名前・生年月日・入社日）が入っています。取り扱いに注意し、要らなくなったら消してください。</p>
+      <button type="button" id="export" class="btn block">Excel で書き出す</button>
+      <p id="exported" class="hint" role="status" hidden></p>
     </div>
     <div class="card">
-      <h2>1. 今の内容を書き出す</h2>
-      <p id="export-hint" class="sub"></p>
-      <button type="button" id="export" class="btn block">今の内容を書き出す（コピー）</button>
-      <div id="export-fallback" class="field" hidden>
-        <label for="export-text">コピーできませんでした。下の文字を全部選んで（Ctrl + A）コピーしてください</label>
-        <textarea id="export-text" readonly></textarea>
-      </div>
-    </div>
-    <div class="card">
-      <h2>2. Excel で書き足して、貼り付ける</h2>
+      <h2>2. 書き足したファイルを読み込む</h2>
       <div class="field">
-        <label for="paste">Excel で表を見出しの行から選んでコピーし、ここに貼り付けてください</label>
-        <textarea id="paste" spellcheck="false" autocomplete="off"></textarea>
-        <p id="paste-hint" class="hint"></p>
+        <label for="file">Excel のファイルを選ぶ（.xlsx）</label>
+        <input type="file" id="file" accept=".xlsx">
+        <p class="hint">読み込むと、何が変わるかの一覧が出ます。「登録する」を押すまで、何も保存されません。ファイルはこの端末の中で読み、どこにも送りません。確かめているのは、Excel（Windows）で保存したファイルだけです。</p>
+        <p id="file-status" class="hint" role="status" hidden></p>
       </div>
-      <button type="button" id="check" class="btn primary block">確かめる</button>
     </div>
     <div id="preview" class="card" hidden>
       <h2>3. 確かめる</h2>
       <p id="preview-summary"></p>
-      <ul id="preview-list" class="list bulk-list"></ul>
+      <h3>部署</h3>
+      <p id="dept-summary" class="sub"></p>
+      <ul id="dept-list" class="list bulk-list"></ul>
+      <h3>社員</h3>
+      <p id="emp-summary" class="sub"></p>
+      <p id="emp-note" class="sub" hidden></p>
+      <ul id="emp-list" class="list bulk-list"></ul>
       <button type="button" id="register" class="btn primary block" hidden></button>
     </div>
     <div id="result" class="card" hidden>

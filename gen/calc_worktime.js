@@ -168,7 +168,7 @@ var CalcWorktime = (function () {
 
   /**
    * 休憩（決まった休憩・長く働いた日の追加の休憩）と実働。
-   * shift は validateShift を通ったもの。breakType は社員履歴の休憩方式（現場日中 / 事務 / 夜勤）。
+   * shift は validateShift を通ったもの。breakType は部署の休憩方式（現場作業員 / 事務員。RULES.BREAK_RULES のキー。2026-11-16 から部署で決める）。
    * いつも成り立つこと: rawStay = deemedExcluded + adjustedStay、adjustedStay = baseBreak + extraBreak + work、
    *   baseBreak + extraBreak = (lunch の長さ) + otherBreak
    */

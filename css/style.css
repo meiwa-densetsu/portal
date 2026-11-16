@@ -211,9 +211,8 @@ textarea {
   border: 1px solid var(--c-sub); border-radius: var(--radius); padding: var(--sp-2) var(--sp-3); white-space: pre; overflow: auto;
 }
 textarea:focus-visible { outline: 3px solid var(--c-primary); outline-offset: 2px; }
-.tabs { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-4); }
-.tabs .btn { flex: 1 1 0; }
-.tabs .btn[aria-selected="true"] { color: var(--c-primary-text); background: var(--c-primary); }
+input[type="file"] { width: 100%; min-height: var(--tap); font: inherit; font-size: var(--fs-small); color: inherit; padding: var(--sp-2) 0; }
+input[type="file"]::file-selector-button { min-height: var(--tap); font: inherit; padding: 0 var(--sp-3); margin-right: var(--sp-3); }
 .bulk-list > li .bulk-op { font-size: var(--fs-small); margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
 .bulk-list > li .bulk-err { color: var(--c-danger); font-weight: 700; font-size: var(--fs-small); margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
 .bulk-list > li .bulk-note { color: var(--c-warn); font-size: var(--fs-small); margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
@@ -432,6 +431,8 @@ button.person-head { cursor: pointer; }
 .tk-row.tk-urgent .tk-text { font-weight: 700; }
 /* 定型タスクの予定（計画 stage2-task-plan-ahead-plan.md 3-4）: 薄い字と「予定」の印で分ける。押せない */
 .tk-row.tk-plan .tk-text, .grid-cell.tk-plan { color: var(--c-sub); }
+/* 月の表で打って足した直後の「保存中」のタスク: 薄い字と「（保存中）」で分ける。保存が済むと、ふつうの色に戻る */
+.tk-row.tk-pending .tk-text, .grid-cell.tk-pending { color: var(--c-sub); }
 .tk-plan-head { padding: var(--sp-1) var(--sp-3); border-top: 1px dashed var(--c-line-strong); }
 .tk-empty { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--c-line); }
 .tk-fold { border-top: 1px dashed var(--c-line-strong); }

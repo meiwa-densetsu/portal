@@ -5,7 +5,7 @@
     var ui = MP.ui, $ = ui.$, el = ui.el;
     return MP.guard.enter({ admin: true, load: { action: 'master.admin.list' } }).then(function (entered) {
       var save = MP.api.saver();
-      var data = { employees: [], departments: [], calendars: [], today: '', options: { roles: [], employmentTypes: [], breakTypes: [] } };
+      var data = { employees: [], departments: [], calendars: [], today: '', options: { roles: [], employmentTypes: [] } };
       var currentId = '';   // 詳しい画面で開いている社員
       var histBase = null;  // 直している履歴の行（新しい行なら null）
       var VIEWS = ['list-view', 'detail-view', 'hist-view', 'add-view'];
@@ -36,11 +36,6 @@
       function deptName(id) {
         var d = data.departments.filter(function (x) { return x.deptId === id; })[0];
         return d ? d.name + (d.active ? '' : '（無効）') : (id ? id : '—');
-      }
-      function calName(id) {
-        if (!id) return 'カレンダー未設定';
-        var c = (data.calendars || []).filter(function (x) { return x.calendarId === id; })[0];
-        return c ? c.name + (c.active ? '' : '（使っていない）') : id;
       }
       /** 今日の時点で有効な履歴の行（無ければ null） */
       function effective(e) {
@@ -129,7 +124,10 @@
         };
       }
 
-      /** 履歴の項目（適用開始日・権限・部署・閲覧部署・雇用区分・所定労働時間・休憩方式） */
+      /**
+       * 履歴の項目（適用開始日・権限・部署・閲覧部署・雇用区分・所定労働時間）。
+       * 休憩方式・会社カレンダーは部署で決まるので、ここでは選ばない・送らない（計画 stage1-break-types-plan.md 6-1）
+       */
       function histCtl(container, p) {
         var since = dateCtl(p + '-since', 'いつから（適用開始日）', 1980, thisYear + 2, true);
         var role = selectOf(p + '-role', '権限', data.options.roles);
@@ -137,20 +135,16 @@
         var viewBox = el('div', { id: p + '-view' });
         var viewField = field('閲覧できる部署（部長だけ）', '', viewBox, '部長が日報などを見られる部署を、1つ以上選びます');
         var emp = selectOf(p + '-emp', '雇用区分', data.options.employmentTypes);
-        var brk = selectOf(p + '-break', '休憩方式', data.options.breakTypes);
-        var cal = el('select', { id: p + '-cal' });
         var hours = el('input', { type: 'text', id: p + '-hours', inputmode: 'numeric', maxlength: '2', autocomplete: 'off', 'aria-label': '1日の所定労働時間（時間）' });
         var mins = el('input', { type: 'text', id: p + '-mins', inputmode: 'numeric', maxlength: '2', autocomplete: 'off', 'aria-label': '1日の所定労働時間（分）' });
         var timeRow = el('div', { class: 'row', id: p + '-time' }, [hours, mins]);
         ui.clear(container);
         container.appendChild(since.node);
         container.appendChild(field('権限', role.id, role));
-        container.appendChild(field('部署', dept.id, dept));
+        container.appendChild(field('部署', dept.id, dept, '休憩方式と会社カレンダーは、部署で決まります（部署の管理で選びます）'));
         container.appendChild(viewField);
         container.appendChild(field('雇用区分', emp.id, emp));
         container.appendChild(field('1日の所定労働時間（左に時間、右に分）', '', timeRow, '例: 8時間なら「8」と「0」、7時間30分なら「7」と「30」'));
-        container.appendChild(field('休憩方式', brk.id, brk));
-        container.appendChild(field('会社カレンダー', cal.id, cal, 'この人の出勤日・休みを決めるカレンダーです（出向の人など、部署と違ってもかまいません）。日報の所定に使います'));
         role.addEventListener('change', function () { viewField.hidden = role.value !== ROLE_MANAGER; });
 
         function fillDepts(h) {
@@ -165,13 +159,6 @@
             viewBox.appendChild(el('label', { class: 'check', for: id }, [
               el('input', { type: 'checkbox', id: id, value: d.deptId, checked: !!h && h.viewDeptIds.indexOf(d.deptId) >= 0 }), d.name + (d.active ? '' : '（無効）')]));
           });
-          // カレンダー: 使っているものと、元にする行と同じもの（使わなくしたものでも、前と同じなら選べる）
-          var keepCal = h ? h.calendarId : '';
-          ui.clear(cal);
-          cal.appendChild(el('option', { value: '', text: '未設定' }));
-          (data.calendars || []).filter(function (c) { return c.active || c.calendarId === keepCal; }).forEach(function (c) {
-            cal.appendChild(el('option', { value: c.calendarId, text: c.name + (c.active ? '' : '（使っていない）') }));
-          });
         }
 
         return {
@@ -182,8 +169,6 @@
             setSelect(role, h ? h.role : '');
             setSelect(dept, h && data.departments.some(function (d) { return d.deptId === h.deptId; }) ? h.deptId : '');
             setSelect(emp, h ? h.employmentType : '');
-            setSelect(brk, h ? h.breakType : '');
-            setSelect(cal, h ? h.calendarId || '' : '');
             var n = h && h.dailyMinutes !== null ? h.dailyMinutes : 480;
             hours.value = Math.floor(n / 60); mins.value = n % 60;
             viewField.hidden = role.value !== ROLE_MANAGER;
@@ -196,14 +181,13 @@
             if (!role.value) { ui.fieldError(role, '権限を選んでください'); ok = false; }
             if (!dept.value) { ui.fieldError(dept, '部署を選んでください（無ければ、先に「部署の管理」で作ります）'); ok = false; }
             if (!emp.value) { ui.fieldError(emp, '雇用区分を選んでください'); ok = false; }
-            if (!brk.value) { ui.fieldError(brk, '休憩方式を選んでください'); ok = false; }
             var view = role.value === ROLE_MANAGER
               ? Array.prototype.filter.call(viewBox.querySelectorAll('input'), function (c) { return c.checked; }).map(function (c) { return c.value; }) : [];
             if (role.value === ROLE_MANAGER && !view.length) { ui.fieldError(viewBox, '閲覧できる部署を1つ以上選んでください'); ok = false; }
             var hv = hours.value.trim(), mv = mins.value.trim() || '0';
             var total = Number(hv) * 60 + Number(mv);
             if (!/^\d+$/.test(hv) || !/^\d+$/.test(mv) || Number(mv) > 59 || total < 1 || total > 1440) { ui.fieldError(timeRow, '所定労働時間を、時間（0〜24）と分（0〜59）の数字で入れてください'); ok = false; }
-            return ok ? { since: s.value, role: role.value, deptId: dept.value, viewDeptIds: view, employmentType: emp.value, dailyMinutes: total, breakType: brk.value, calendarId: cal.value } : null;
+            return ok ? { since: s.value, role: role.value, deptId: dept.value, viewDeptIds: view, employmentType: emp.value, dailyMinutes: total } : null;
           },
         };
       }
@@ -227,16 +211,25 @@
           ]));
           rows.appendChild(el('tr', {}, [
             el('td', { text: e.name }), el('td', { text: h ? deptName(h.deptId) : '—' }), el('td', { text: h ? h.role : '—' }),
-            el('td', { text: h ? calName(h.calendarId) : '—' }),
             el('td', {}, [el('span', { class: 'tag ' + st[1], text: st[0] })]), el('td', { class: 'item-actions' }, [openBtn(), viewBtn()]),
           ]));
         });
-        // 今日のカレンダーが未設定の、利用中の社員（手順6の日報で所定が出せないため）
-        var missing = data.employees.filter(function (e) { var h = effective(e); return e.active && h && !h.calendarId; });
-        $('cal-note').textContent = missing.length
-          ? 'カレンダーが未設定の社員がいます（' + missing.map(function (e) { return e.name; }).join('・') + '）。開いて「変更を足す」か「直す」でカレンダーを選んでください'
+        // 休憩方式か会社カレンダーが決まっていない部署に、利用中の社員がいる（日報が計算できない・所定が出ないため）。
+        // 部署の一覧の値から出す。1 つ前のサーバー（部署に 2 つの項目が無い）のときは出さない
+        var names = [];
+        var hasRules = !!(data.options && data.options.breakTypeNotes);
+        data.employees.forEach(function (e) {
+          var h = effective(e);
+          if (!hasRules || !e.active || !h) return;
+          var d = data.departments.filter(function (x) { return x.deptId === h.deptId; })[0];
+          if (d && d.breakType && d.calendarId) return;
+          var n = deptName(h.deptId);
+          if (names.indexOf(n) < 0) names.push(n);
+        });
+        $('cal-note').textContent = names.length
+          ? '休憩方式か会社カレンダーが決まっていない部署に、利用中の社員がいます（' + names.join('・') + '）。部署の管理で選んでください'
           : '';
-        $('cal-note').hidden = !missing.length;
+        $('cal-note').hidden = !names.length;
       }
 
       function apply(r) {
@@ -270,9 +263,8 @@
       function openDetail(id) { currentId = id; ui.pageMessage(''); renderDetail(); }
 
       function histLine(h) {
-        var parts = [h.role || '—', deptName(h.deptId), h.employmentType || '—', minutesText(h.dailyMinutes), h.breakType || '—'];
+        var parts = [h.role || '—', deptName(h.deptId), h.employmentType || '—', minutesText(h.dailyMinutes)];
         if (h.viewDeptIds.length) parts.push('閲覧: ' + h.viewDeptIds.map(deptName).join('・'));
-        parts.push(calName(h.calendarId));
         return parts.join(' ／ ');
       }
 
@@ -481,7 +473,13 @@
           ui.fieldError(hist.sinceRow, 'この日付からの内容は、もう登録されています。戻って、その行の「直す」から直してください');
           return;
         }
-        var args = { employeeId: e.employeeId, baseSince: histBase ? histBase.since : null, base: histBase, next: next };
+        // base は一覧の行から、休憩方式・カレンダー（部署の値。社員の保存では使わない）を除いて送る
+        var base = null;
+        if (histBase) {
+          base = {};
+          Object.keys(histBase).forEach(function (k) { if (k !== 'breakType' && k !== 'calendarId') base[k] = histBase[k]; });
+        }
+        var args = { employeeId: e.employeeId, baseSince: histBase ? histBase.since : null, base: base, next: next };
         ui.run(function () {
           return save('master.admin.saveHistory', args).then(function (r) {
             if (r.ok) return reload('保存しました');

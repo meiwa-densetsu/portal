@@ -10,24 +10,24 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=16">
-<script src="js/boot.js?v=16" defer></script>
-<script src="js/sw_register.js?v=16" defer></script>
-<script src="js/config.js?v=16" defer></script>
-<script src="js/store.js?v=16" defer></script>
-<script src="js/ui.js?v=16" defer></script>
-<script src="js/api.js?v=16" defer></script>
-<script src="js/guard.js?v=16" defer></script>
-<script src="gen/calc_task.js?v=16" defer></script>
-<script src="js/remind.js?v=16" defer></script>
-<script src="js/bulk.js?v=16" defer></script>
-<script src="js/grid_core.js?v=16" defer></script>
-<script src="js/grid.js?v=16" defer></script>
-<script src="js/task_view.js?v=16" defer></script>
-<script src="js/task_item.js?v=16" defer></script>
-<script src="js/task_dialogs.js?v=16" defer></script>
-<script src="js/task_import.js?v=16" defer></script>
-<script src="js/page_tasks.js?v=16" defer></script>
+<link rel="stylesheet" href="css/style.css?v=17">
+<script src="js/boot.js?v=17" defer></script>
+<script src="js/sw_register.js?v=17" defer></script>
+<script src="js/config.js?v=17" defer></script>
+<script src="js/store.js?v=17" defer></script>
+<script src="js/ui.js?v=17" defer></script>
+<script src="js/api.js?v=17" defer></script>
+<script src="js/guard.js?v=17" defer></script>
+<script src="gen/calc_task.js?v=17" defer></script>
+<script src="js/remind.js?v=17" defer></script>
+<script src="js/bulk.js?v=17" defer></script>
+<script src="js/grid_core.js?v=17" defer></script>
+<script src="js/grid.js?v=17" defer></script>
+<script src="js/task_view.js?v=17" defer></script>
+<script src="js/task_item.js?v=17" defer></script>
+<script src="js/task_dialogs.js?v=17" defer></script>
+<script src="js/task_import.js?v=17" defer></script>
+<script src="js/page_tasks.js?v=17" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -77,7 +77,7 @@
 
   <!-- パソコン: 月の表（列 = 番号・担当・申し送り。行 = 日付ごとのタスク。1 マス = 1 件） -->
   <section id="table-pane" hidden>
-    <p class="sub">セルを選んで打つと、新しいタスク・内容の直しになります（Excel からの貼り付けもできます）。状態などは、セルを選んでから下のボタンで。番号は今の並びの番号です（並びが変わると変わります）。</p>
+    <p class="sub">セルを選んで打つと、新しいタスク・内容の直しになります（Excel からの貼り付けもできます）。タスクを選んで Backspace で消せます。状態などは、セルを選んでから下のボタンで。番号は今の並びの番号です（並びが変わると変わります）。</p>
     <div class="menu cols grid-tools" id="task-tools">
       <button type="button" id="t-complete" class="btn">完了</button>
       <button type="button" id="t-reopen" class="btn">未完了に戻す</button>

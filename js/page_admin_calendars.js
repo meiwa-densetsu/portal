@@ -40,7 +40,7 @@
         if (!list.calendars.length) ul.appendChild(el('li', { class: 'sub', text: 'カレンダーはまだありません。「カレンダーを追加」から作ってください（例: 通信班・鉄道班・名鉄EI出向班）' }));
         var un = list.employees.filter(function (e) { return !e.calendarId; });
         $('unassigned').textContent = un.length
-          ? 'カレンダーが未設定の社員が ' + un.length + ' 人います（' + un.map(function (e) { return e.name; }).join('・') + '）。「社員の管理」で、その人を開いてカレンダーを選んでください'
+          ? 'カレンダーが未設定の社員が ' + un.length + ' 人います（' + un.map(function (e) { return e.name; }).join('・') + '）。「部署の管理」で、その人の部署の会社カレンダーを選んでください'
           : '';
         $('unassigned').hidden = !un.length;
       }

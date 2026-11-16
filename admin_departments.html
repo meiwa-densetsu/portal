@@ -10,17 +10,17 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=16">
-<script src="js/boot.js?v=16" defer></script>
-<script src="js/sw_register.js?v=16" defer></script>
-<script src="js/config.js?v=16" defer></script>
-<script src="js/store.js?v=16" defer></script>
-<script src="js/ui.js?v=16" defer></script>
-<script src="js/api.js?v=16" defer></script>
-<script src="js/guard.js?v=16" defer></script>
-<script src="gen/calc_task.js?v=16" defer></script>
-<script src="js/remind.js?v=16" defer></script>
-<script src="js/page_admin_departments.js?v=16" defer></script>
+<link rel="stylesheet" href="css/style.css?v=17">
+<script src="js/boot.js?v=17" defer></script>
+<script src="js/sw_register.js?v=17" defer></script>
+<script src="js/config.js?v=17" defer></script>
+<script src="js/store.js?v=17" defer></script>
+<script src="js/ui.js?v=17" defer></script>
+<script src="js/api.js?v=17" defer></script>
+<script src="js/guard.js?v=17" defer></script>
+<script src="gen/calc_task.js?v=17" defer></script>
+<script src="js/remind.js?v=17" defer></script>
+<script src="js/page_admin_departments.js?v=17" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -46,6 +46,19 @@
       <label for="dept-order">表示順</label>
       <input type="text" id="dept-order" inputmode="numeric" maxlength="4" autocomplete="off">
       <p class="hint">一覧に並ぶ順番です（1〜9999。小さいほうが上）</p>
+    </div>
+    <div id="rules-fields">
+      <div class="field">
+        <label for="dept-break">休憩方式</label>
+        <select id="dept-break"></select>
+        <div id="dept-break-notes"></div>
+        <p class="hint">夜勤の日は、どちらを選んでも夜勤の休憩で計算します</p>
+      </div>
+      <div class="field">
+        <label for="dept-cal">会社カレンダー</label>
+        <select id="dept-cal"></select>
+        <p class="hint">この部署の人の出勤日・休みを決めるカレンダーです。日報の所定に使います</p>
+      </div>
     </div>
     <div id="active-field" class="field" hidden>
       <label class="check" for="dept-active"><input type="checkbox" id="dept-active"> 有効（使っている）</label>

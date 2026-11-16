@@ -1,26 +1,42 @@
 /*
  * まとめて登録の計算（計画 docs/plans/stage1-bulk-plan.md 第2章・第3章）。画面の部品を使わない純粋な JS（Node のテストでも読み込む）
  *
- *   MP.bulk.exportDepartments(data) / exportEmployees(data) → Excel に貼れるタブ区切りの文字
+ *   MP.bulk.exportDepartments(data) / exportEmployees(data) → タブ区切りの文字（前の「貼り付け」のやり方の形。今は画面では使わず、試験が計画の入力に使う）
  *   MP.bulk.planDepartments(text, data) / planEmployees(text, data)
  *     → { fatal: '文' }（表全体の誤り）または { rows: [{ line, label, errors: [], notes: [], ops: [] }], ops: [...], unchanged, errorCount }
  *     ops の1件: { action, args, label, line, group }（group … 同じ社員の「基本」と「履歴」をまとめる印）
  *   data は master.admin.list の答え（employees・departments・today・options）
+ *
+ * Excel のファイルのやり方（計画 docs/plans/stage1-bulk-excel-plan.md 2-2）で足した分:
+ *   planDepartments / planEmployees の1つ目の引数は、行の配列 [{ line, cells, errors }] でもよい（bulk_book.js の read の答え）
+ *   MP.bulk.departmentRows(data) / employeeRows(data) → 書き出す行（文字の配列の配列。見出しは含まない）
+ *   MP.bulk.afterDepartments(data, 部署の計画) → 部署の計画を当てはめた後の data の写し（新しい部署は仮の ID「NEW-L<行>」）
+ *   MP.bulk.planKey(計画, data) → 計画の中身の目印（action と args の全部。部署ID は名前の鍵に置き換える）
+ *   MP.bulk.hasTempId(ops) → 仮の ID が残っているか
  *
  * 最終の判断はサーバー（ここでの確かめは、保存の前に早めに知らせるため）
  */
 (function (root) {
   'use strict';
 
-  var DEPT_HEADERS = ['部署ID', '部署の名前', '表示順', '使っている'];
-  var EMP_HEADERS = ['社員ID', '名前', '表示順', '入社日', '生年月日', '適用開始日', '権限', '部署', '閲覧部署', '雇用区分', '1日の所定労働時間', '休憩方式', 'カレンダー', '状態'];
   /**
-   * 貼り付けで無くてもよい列。「カレンダー」は手順5で足した列で、前の版で書き出した表には無い（無ければカレンダーは変えない。
-   * 計画 stage1-step5-plan.md 第4章）。空を許す項目なので、下の「全部空なら変えない・一部だけ空は誤り」の判定（HIST_COLS）には入れない
+   * 列の定義（2026-11-16 から、休憩方式・会社カレンダーは部署で決める。計画 stage1-break-types-plan.md 6-4）。
+   * 部署の表: 休憩方式（options.breakTypes のどれか）・会社カレンダー（名前。空は未設定）を足した 6 列
    */
-  var EMP_OPTIONAL = ['状態', 'カレンダー'];
-  var CAL_COL = 'カレンダー';
-  var HIST_COLS = ['権限', '部署', '閲覧部署', '雇用区分', '1日の所定労働時間', '休憩方式'];
+  var DEPT_HEADERS = ['部署ID', '部署の名前', '表示順', '使っている', '休憩方式', '会社カレンダー'];
+  var DEPT_BREAK_COL = '休憩方式';
+  var DEPT_CAL_COL = '会社カレンダー';
+  /** 社員の表: 休憩方式・カレンダーを外した 12 列 */
+  var EMP_HEADERS = ['社員ID', '名前', '表示順', '入社日', '生年月日', '適用開始日', '権限', '部署', '閲覧部署', '雇用区分', '1日の所定労働時間', '状態'];
+  /** 社員の表で無くてもよい列 */
+  var EMP_OPTIONAL = ['状態'];
+  /**
+   * 社員の表で読み飛ばす列（前に書き出した表に残っている 2 列。部署で決まるので使わない）。
+   * 知らない列にも足りない列にも数えず、値は読まない。部署の表には渡さない（部署の表では要る列）
+   */
+  var EMP_SKIPPED = ['休憩方式', 'カレンダー'];
+  var SKIPPED_NOTE = '休憩方式・カレンダーの列は、部署で決まるので使いません';
+  var HIST_COLS = ['権限', '部署', '閲覧部署', '雇用区分', '1日の所定労働時間'];
   var NAME_MAX = 30;
   var ORDER_MAX = 9999;
   var MINUTES_MAX = 1440;
@@ -144,30 +160,38 @@
   }
 
   /**
-   * 見出しの名前で列を見つける。返り値: { rows: [{ line, get(見出し) }] } か { fatal }
-   * 足りない見出し・知らない見出し・同じ見出し2回 → fatal。空の行は飛ばす
+   * 見出しの名前で列を見つける。返り値: { rows: [{ line, get(見出し) }], skipped: [読み飛ばした見出し] } か { fatal }
+   * 足りない見出し・知らない見出し・同じ見出し2回 → fatal。空の行は飛ばす。
+   * skip … 読み飛ばす見出し（知らない列にも足りない列にも数えず、値は読まない。同じ見出しが 2 回なら、今までどおり止める）
    */
-  function readTable(text, headers, optional) {
-    var lines = splitTsv(text).filter(function (r) { return r.cells.some(function (c) { return String(c).trim() !== ''; }); });
-    if (!lines.length) return { fatal: '貼り付けた表が空です。Excel で見出しの行から選んでコピーしてください' };
+  function readTable(text, headers, optional, skip) {
+    // 行の配列（Excel のファイルを読んだもの。計画 stage1-bulk-excel-plan.md 2-2）は、そのまま使う。セルの誤り（errors）のある行は、空でも飛ばさない
+    var lines = (Array.isArray(text) ? text : splitTsv(text)).filter(function (r) {
+      return r.cells.some(function (c) { return String(c).trim() !== ''; }) || (!!r.errors && r.errors.length > 0);
+    });
+    if (lines.length && lines[0].errors && lines[0].errors.length) return { fatal: '見出しの行に読めないセルがあります（' + lines[0].errors.join('／') + '）' };
+    if (!lines.length) return { fatal: '表が空です。見出しの行（1行目）は消さないでください（書き出したファイルを使ってください）' };
     var head = lines[0].cells.map(function (c) { return String(c).trim(); });
     var index = {};
-    var unknown = [];
+    var unknown = [], skipped = [];
     for (var i = 0; i < head.length; i++) {
       var h = head[i];
       if (h === '') continue;
-      if (Object.prototype.hasOwnProperty.call(index, h)) return { fatal: '見出し「' + h + '」が2つあります' };
+      if (Object.prototype.hasOwnProperty.call(index, h) || skipped.indexOf(h) >= 0) return { fatal: '見出し「' + h + '」が2つあります' };
+      if ((skip || []).indexOf(h) >= 0) { skipped.push(h); continue; }
       if (headers.indexOf(h) < 0) unknown.push(h);
       index[h] = i;
     }
-    if (unknown.length) return { fatal: '知らない列があります: ' + unknown.join('、') + '（使わない列は消してから貼ってください。見出しの名前は書き出したものから変えないでください）' };
+    if (unknown.length) return { fatal: '知らない列があります: ' + unknown.join('、') + '（使わない列は消してください。見出しの名前は、書き出したファイルから変えないでください）' };
     var missing = headers.filter(function (h) { return (optional || []).indexOf(h) < 0 && !Object.prototype.hasOwnProperty.call(index, h); });
-    if (missing.length) return { fatal: '列がありません: ' + missing.join('、') + '（見出しの行から選んでコピーしてください）' };
+    if (missing.length) return { fatal: '列がありません: ' + missing.join('、') + '（見出しの名前は、書き出したファイルから変えないでください）' };
     return {
       has: function (h) { return Object.prototype.hasOwnProperty.call(index, h); },
+      skipped: skipped,
       rows: lines.slice(1).map(function (r) {
         return {
           line: r.line,
+          errors: r.errors ? r.errors.slice() : [],
           get: function (h) { return Object.prototype.hasOwnProperty.call(index, h) ? String(r.cells[index[h]] === undefined ? '' : r.cells[index[h]]).trim() : ''; },
         };
       }),
@@ -198,10 +222,15 @@
 
   // ---------------------------------------------------------------- 部署
 
+  /** 書き出す行（見出しは含まない。値はすべて文字）。タブ区切りの書き出しと Excel のファイル（bulk_book.js）で同じものを使う */
+  function departmentRows(data) {
+    return data.departments.map(function (d) {
+      return [d.deptId, d.name, d.order === null ? '' : d.order, d.active ? 'はい' : 'いいえ', d.breakType || '', d.calendarId ? calNameOf(data, d.calendarId) : ''].map(str);
+    });
+  }
+
   function exportDepartments(data) {
-    return toTsv(DEPT_HEADERS, data.departments.map(function (d) {
-      return [d.deptId, d.name, d.order === null ? '' : d.order, d.active ? 'はい' : 'いいえ'];
-    }));
+    return toTsv(DEPT_HEADERS, departmentRows(data));
   }
 
   function parseActive(s) {
@@ -218,7 +247,7 @@
     data.departments.forEach(function (d) { byId[d.deptId] = d; });
     var seenId = {};
     var rows = t.rows.map(function (r) {
-      var row = { line: r.line, label: '', errors: [], notes: [], ops: [] };
+      var row = { line: r.line, label: '', errors: r.errors.slice(), notes: [], ops: [] };
       var id = r.get('部署ID');
       var name = r.get('部署の名前');
       row.label = (id || '新しい部署') + ' ' + name;
@@ -241,18 +270,41 @@
       var active = activeText === '' && !cur ? true : parseActive(activeText);
       if (active === null) row.errors.push('「使っている」は「はい」か「いいえ」で入れてください');
       else if (!cur && active === false) row.errors.push('新しい部署は「使っている」を「はい」にしてください');
+      // 休憩方式・会社カレンダー（計画 stage1-break-types-plan.md 6-4）。
+      // 送るときは 2 つそろえて送る（片方だけはサーバーが断る）。今ある部署で、休憩方式が空のまま・カレンダーも同じなら、2 つとも送らない（触らない。未設定の部署を往復で誤りにしない）
+      var curBreak = cur ? str(cur.breakType) : '', curCal = cur ? str(cur.calendarId) : '';
+      var breakText = r.get(DEPT_BREAK_COL);
+      var calId = null;
+      var calText = r.get(DEPT_CAL_COL);
+      if (calText === '') calId = '';
+      else {
+        var rc = resolveCalendar(data, calText, cur ? [curCal] : []);
+        if (rc.error) row.errors.push('会社カレンダー: ' + rc.error);
+        else calId = rc.id;
+      }
+      var withRules = !cur || breakText !== curBreak || (calId !== null && calId !== curCal);
+      if (withRules && data.options.breakTypes.indexOf(breakText) < 0) {
+        row.errors.push('休憩方式は ' + data.options.breakTypes.join('・') + ' のどれかにしてください' + (breakText === '' ? '（部署には必ず入れます）' : ''));
+      }
       row._name = name; row._cur = cur; row._changedName = changedName;
       if (row.errors.length) return row;
       var next = { name: name, order: order, active: active };
+      if (withRules) { next.breakType = breakText; next.calendarId = calId; }
+      var calLabel = function (id) { return id ? calNameOf(data, id) : '未設定'; };
       if (!cur) {
-        row.ops.push({ action: 'master.admin.saveDepartment', args: { deptId: null, base: null, next: next }, label: '部署を足す: ' + name, line: r.line, group: 'L' + r.line });
-      } else if (cur.name !== name || str(cur.order) !== str(order) || cur.active !== active) {
+        row.ops.push({ action: 'master.admin.saveDepartment', args: { deptId: null, base: null, next: next },
+          label: '部署を足す: ' + name + '（' + breakText + '・カレンダー ' + calLabel(calId) + '）', line: r.line, group: 'L' + r.line });
+      } else if (cur.name !== name || str(cur.order) !== str(order) || cur.active !== active || withRules) {
         if (order === null) { row.errors.push('部署を直すときは、表示順も 1〜' + ORDER_MAX + ' の整数で入れてください'); return row; }
         var what = [];
         if (cur.name !== name) what.push('名前 ' + cur.name + ' → ' + name);
         if (str(cur.order) !== str(order)) what.push('表示順 ' + str(cur.order) + ' → ' + order);
         if (cur.active !== active) what.push(active ? '使う' : '使わない');
-        row.ops.push({ action: 'master.admin.saveDepartment', args: { deptId: cur.deptId, base: { name: cur.name, order: cur.order, active: cur.active }, next: next },
+        if (withRules && breakText !== curBreak) what.push('休憩方式 ' + (curBreak || '未設定') + ' → ' + breakText);
+        if (withRules && calId !== curCal) what.push('カレンダー ' + calLabel(curCal) + ' → ' + calLabel(calId));
+        var base = { name: cur.name, order: cur.order, active: cur.active };
+        if (withRules) { base.breakType = curBreak; base.calendarId = curCal; }
+        row.ops.push({ action: 'master.admin.saveDepartment', args: { deptId: cur.deptId, base: base, next: next },
           label: '部署を直す（' + cur.deptId + '）: ' + what.join('・'), line: r.line, group: 'L' + r.line });
       }
       return row;
@@ -282,24 +334,30 @@
     return '利用中';
   }
 
-  /** 履歴の行を、表の6つの列（権限〜休憩方式）の文字にする（書き出しと「変えない」の判定で同じものを使う） */
+  /** 履歴の行を、表の 5 つの列（権限〜1日の所定労働時間。HIST_COLS の順）の文字にする（書き出しと「変えない」の判定で同じものを使う） */
   function histCells(data, h) {
     return [h.role || '', deptNameOf(data, h.deptId), (h.viewDeptIds || []).map(function (id) { return deptNameOf(data, id); }).join('、'),
-      h.employmentType || '', fmtMinutes(h.dailyMinutes), h.breakType || ''];
+      h.employmentType || '', fmtMinutes(h.dailyMinutes)];
   }
+  var EMPTY_HIST = HIST_COLS.map(function () { return ''; });
 
   function calNameOf(data, id) {
     var c = (data.calendars || []).filter(function (x) { return x.calendarId === id; })[0];
     return c ? c.name : '';
   }
 
-  function exportEmployees(data) {
-    return toTsv(EMP_HEADERS, data.employees.map(function (e) {
+  /** 書き出す行（見出しは含まない。値はすべて文字。列の順は EMP_HEADERS） */
+  function employeeRows(data) {
+    return data.employees.map(function (e) {
       var ef = effective(e.history, data.today, data.options.roles);
-      var cells = ef.row ? histCells(data, ef.row) : ['', '', '', '', '', ''];
+      var cells = ef.row ? histCells(data, ef.row) : EMPTY_HIST;
       return [e.employeeId, e.name, e.order === null ? '' : e.order, fmtDateOut(e.joinDate), fmtDateOut(e.birthDate), ''].concat(cells)
-        .concat([ef.row ? calNameOf(data, ef.row.calendarId) : '', statusText(e)]);
-    }));
+        .concat([statusText(e)]).map(str);
+    });
+  }
+
+  function exportEmployees(data) {
+    return toTsv(EMP_HEADERS, employeeRows(data));
   }
 
   /**
@@ -310,7 +368,7 @@
     var key = nameKey(name);
     var hits = (data.calendars || []).filter(function (c) { return nameKey(c.name) === key; });
     if (hits.length > 1) return { error: '「' + name + '」という名前のカレンダーが2つあります（カレンダーの名前を直してください）' };
-    if (!hits.length) return { error: '「' + name + '」というカレンダーがありません（名前を変えたときは、社員の表を書き出し直してください）' };
+    if (!hits.length) return { error: '「' + name + '」というカレンダーがありません（名前を変えたときは、ファイルを書き出し直してください）' };
     if (hits[0].active || (allowIds || []).indexOf(hits[0].calendarId) >= 0) return { id: hits[0].calendarId };
     return { error: '「' + name + '」は使っていないカレンダーです' };
   }
@@ -325,21 +383,20 @@
     var active = hits.filter(function (d) { return d.active; });
     if (active.length === 1 && hits.length === 1) return { id: active[0].deptId };
     if (hits.length > 1) return { error: '「' + name + '」という名前の部署が2つあります（部署の名前を直してください）' };
-    if (!hits.length) return { error: '「' + name + '」という部署がありません（部署の表で登録してから、社員の表を書き出し直してください）' };
+    if (!hits.length) return { error: '「' + name + '」という部署がありません（「部署」のシートに書き足してください）' };
     if ((allowIds || []).indexOf(hits[0].deptId) >= 0) return { id: hits[0].deptId };
     return { error: '「' + name + '」は使っていない部署です' };
   }
 
   function planEmployees(text, data) {
-    var t = readTable(text, EMP_HEADERS, EMP_OPTIONAL);
+    var t = readTable(text, EMP_HEADERS, EMP_OPTIONAL, EMP_SKIPPED);
     if (t.fatal) return { fatal: t.fatal };
-    var hasCal = t.has(CAL_COL);
     var o = data.options;
     var byId = {};
     data.employees.forEach(function (e) { byId[e.employeeId] = e; });
     var seenId = {};
     var rows = t.rows.map(function (r) {
-      var row = { line: r.line, label: '', errors: [], notes: [], ops: [] };
+      var row = { line: r.line, label: '', errors: r.errors.slice(), notes: [], ops: [] };
       var id = r.get('社員ID');
       var name = r.get('名前');
       row.label = (id || '新しい人') + ' ' + name;
@@ -358,26 +415,26 @@
       var order = keepNullOrder ? null : parseOrder(orderText);
       if (order === null && !keepNullOrder) row.errors.push('表示順は 1〜' + ORDER_MAX + ' の整数で入れてください');
       var join = parseDate(r.get('入社日'));
-      if (join === null) row.errors.push('入社日は 2026/4/1 の形で入れてください（Excel では列の書式を「日付」にしてからコピーしてください）');
+      if (join === null) row.errors.push('入社日は 2026/4/1 の形で入れてください');
       var birth = parseDate(r.get('生年月日'));
-      if (birth === null) row.errors.push('生年月日は 2026/4/1 の形で入れてください（Excel では列の書式を「日付」にしてからコピーしてください）');
+      if (birth === null) row.errors.push('生年月日は 2026/4/1 の形で入れてください');
       var sinceText = r.get('適用開始日');
       var since = sinceText === '' ? data.today : parseDate(sinceText);
       if (since === null) row.errors.push('適用開始日は 2026/4/1 の形で入れてください（空なら今日からです）');
 
-      // 履歴（権限〜休憩方式）: 全部空なら変えない（今の人だけ）。一部だけ空は誤り。
+      // 履歴（権限〜1日の所定労働時間）: 全部空なら変えない（今の人だけ）。一部だけ空は誤り。
       // ただし今の人で、その日の時点の今の値を書き出したときと同じ文字なら「変えない」（雇用区分などが空の古い行がある人も、往復で誤りにしない）
       var filled = HIST_COLS.filter(function (c) { return r.get(c) !== ''; });
       var wantHist = filled.length > 0;
       if (cur && since) {
         var efNow = effective(cur.history, since, o.roles);
-        var curCells = efNow.row ? histCells(data, efNow.row) : ['', '', '', '', '', ''];
+        var curCells = efNow.row ? histCells(data, efNow.row) : EMPTY_HIST;
         if (HIST_COLS.map(function (c) { return r.get(c); }).join('\t') === curCells.join('\t')) wantHist = false;
       }
       if (wantHist && filled.length < HIST_COLS.length && !(filled.length === HIST_COLS.length - 1 && r.get('閲覧部署') === '')) {
-        row.errors.push('権限・部署・閲覧部署・雇用区分・1日の所定労働時間・休憩方式は、全部入れるか全部空にしてください（閲覧部署は部長だけ）');
+        row.errors.push('権限・部署・閲覧部署・雇用区分・1日の所定労働時間は、全部入れるか全部空にしてください（閲覧部署は部長だけ）');
       }
-      if (!cur && !wantHist) row.errors.push('新しい人には、権限・部署・雇用区分・1日の所定労働時間・休憩方式を入れてください');
+      if (!cur && !wantHist) row.errors.push('新しい人には、権限・部署・雇用区分・1日の所定労働時間を入れてください');
 
       var ef = cur && since ? effective(cur.history, since, o.roles) : { none: true };
       var broken = !!(cur && wantHist && ef.broken);
@@ -407,32 +464,8 @@
         if (o.employmentTypes.indexOf(et) < 0) row.errors.push('雇用区分は ' + o.employmentTypes.join('・') + ' のどれかにしてください');
         var minutes = parseMinutes(r.get('1日の所定労働時間'));
         if (minutes === null) row.errors.push('1日の所定労働時間は 8:00 の形で入れてください（0:01〜24:00）');
-        var bt = r.get('休憩方式');
-        if (o.breakTypes.indexOf(bt) < 0) row.errors.push('休憩方式は ' + o.breakTypes.join('・') + ' のどれかにしてください');
-        if (row.errors.length === before) next = { since: since, role: role, deptId: dept.id, viewDeptIds: viewIds, employmentType: et, dailyMinutes: minutes, breakType: bt };
-      }
-
-      // カレンダー（列があるときだけ）: 空 → 未設定、名前 → ID。列が無ければ変えない（calendarId のキーを送らない）
-      var calId = null;
-      var curCal = effRow ? str(effRow.calendarId) : '';
-      if (hasCal) {
-        var calText = r.get(CAL_COL);
-        if (calText === '') calId = '';
-        else {
-          var rc = resolveCalendar(data, calText, effRow ? [curCal] : []);
-          if (rc.error) row.errors.push('カレンダー: ' + rc.error);
-          else calId = rc.id;
-        }
-      }
-      if (calId !== null && !row.errors.length) {
-        if (next) next.calendarId = calId;
-        else if (cur && calId !== curCal) {
-          // 権限などは変えずに、カレンダーだけを変える: その日の時点の今の内容に、カレンダーだけを重ねた行にする
-          if (ef.broken) row.errors.push('この人の履歴に正しくない行があります（' + ef.broken + '）。社員の管理の画面で直してください');
-          else if (!effRow) row.errors.push('カレンダーだけを変えるには、先に権限などの履歴が要ります（権限〜休憩方式も入れてください）');
-          else next = { since: since, role: effRow.role, deptId: effRow.deptId, viewDeptIds: (effRow.viewDeptIds || []).slice(), employmentType: effRow.employmentType,
-            dailyMinutes: effRow.dailyMinutes, breakType: effRow.breakType, calendarId: calId };
-        }
+        // 休憩方式・会社カレンダーは送らない（部署で決まる。計画 stage1-break-types-plan.md 6-4）
+        if (row.errors.length === before) next = { since: since, role: role, deptId: dept.id, viewDeptIds: viewIds, employmentType: et, dailyMinutes: minutes };
       }
       if (row.errors.length) return row;
 
@@ -460,23 +493,18 @@
           label: '基本（' + cur.employeeId + '）: ' + diffs.join('・'), line: r.line, group: group, part: 'basic' });
       }
       if (next) {
-        var withCal = Object.prototype.hasOwnProperty.call(next, 'calendarId');
         var same = effRow && effRow.role === next.role && effRow.deptId === next.deptId && str(effRow.viewDeptIds) === str(next.viewDeptIds) &&
-          effRow.employmentType === next.employmentType && effRow.dailyMinutes === next.dailyMinutes && effRow.breakType === next.breakType &&
-          (!withCal || curCal === next.calendarId);
+          effRow.employmentType === next.employmentType && effRow.dailyMinutes === next.dailyMinutes;
         if (!same) {
           var sameDay = cur.history.filter(function (h) { return h.since === since; });
           var base = sameDay.length === 1 ? sameDay[0] : null;
-          var baseArgs = base ? { since: base.since, role: base.role, deptId: base.deptId, viewDeptIds: base.viewDeptIds, employmentType: base.employmentType, dailyMinutes: base.dailyMinutes, breakType: base.breakType } : null;
-          if (baseArgs && withCal) baseArgs.calendarId = str(base.calendarId);
+          var baseArgs = base ? { since: base.since, role: base.role, deptId: base.deptId, viewDeptIds: base.viewDeptIds, employmentType: base.employmentType, dailyMinutes: base.dailyMinutes } : null;
           var hd = [];
           if (!effRow || effRow.role !== next.role) hd.push('権限 ' + (effRow ? effRow.role : '—') + ' → ' + next.role);
           if (!effRow || effRow.deptId !== next.deptId) hd.push('部署 ' + (effRow ? deptNameOf(data, effRow.deptId) : '—') + ' → ' + deptNameOf(data, next.deptId));
           if (!effRow || str(effRow.viewDeptIds) !== str(next.viewDeptIds)) hd.push('閲覧部署');
           if (!effRow || effRow.employmentType !== next.employmentType) hd.push('雇用区分 → ' + next.employmentType);
           if (!effRow || effRow.dailyMinutes !== next.dailyMinutes) hd.push('所定 → ' + fmtMinutes(next.dailyMinutes));
-          if (!effRow || effRow.breakType !== next.breakType) hd.push('休憩方式 → ' + next.breakType);
-          if (withCal && (!effRow || curCal !== next.calendarId)) hd.push('カレンダー → ' + (next.calendarId ? calNameOf(data, next.calendarId) : '未設定'));
           row.ops.push({ action: 'master.admin.saveHistory',
             args: base
               ? { employeeId: cur.employeeId, baseSince: since, base: baseArgs, next: next }
@@ -499,11 +527,84 @@
         row.ops = [];
       }
     });
-    return summarize(rows);
+    var out = summarize(rows);
+    // 読み飛ばした列（前に書き出した表の 休憩方式・カレンダー）があれば、画面に 1 行知らせる
+    out.skipped = t.skipped.slice();
+    if (t.skipped.length) out.note = SKIPPED_NOTE;
+    return out;
+  }
+
+  // ---------------------------------------------------------------- Excel のファイルのやり方で足した分（計画 stage1-bulk-excel-plan.md 2-2）
+
+  var TEMP_ID = 'NEW-L'; // まだ保存していない新しい部署の仮の ID（本物の部署ID の形「D + 数字」とは重ならない）
+  var SAVE_DEPT = 'master.admin.saveDepartment';
+
+  /**
+   * 部署の計画を当てはめた後の data の写し（社員の計画を、まだ保存していない新しい部署・名前を変えた部署で確かめるため）。
+   * 呼んでよいのは、部署の計画が fatal でなく、誤りの行が1つも無いときだけ（そうでなければ例外 = 呼ぶ側の誤り）。元の data は変えない
+   */
+  function afterDepartments(data, deptPlan) {
+    if (!deptPlan || deptPlan.fatal || deptPlan.errorCount || !Array.isArray(deptPlan.ops)) throw new Error('部署の計画に誤りがあるときは、当てはめられません');
+    var depts = data.departments.map(function (d) { return Object.assign({}, d); });
+    deptPlan.ops.forEach(function (op) {
+      if (op.action !== SAVE_DEPT) throw new Error('部署の計画ではありません');
+      var n = op.args.next;
+      if (op.args.deptId === null) {
+        depts.push({ deptId: TEMP_ID + op.line, name: n.name, order: n.order, active: true, breakType: str(n.breakType), calendarId: str(n.calendarId) });
+        return;
+      }
+      var cur = depts.filter(function (d) { return d.deptId === op.args.deptId; })[0];
+      if (!cur) throw new Error('計画の部署が見つかりません');
+      cur.name = n.name; cur.order = n.order; cur.active = n.active;
+      if (Object.prototype.hasOwnProperty.call(n, 'breakType')) { cur.breakType = n.breakType; cur.calendarId = n.calendarId; }
+    });
+    return Object.assign({}, data, { departments: depts });
+  }
+
+  /** args の中の値を、決まった順の文字にできる形へ写す（鍵は名前の順。部署ID は名前の鍵に。閲覧部署は鍵の順に並べる） */
+  function keyValue(v, key, deptKey) {
+    if (deptKey && key === 'deptId' && typeof v === 'string') return deptKey(v);
+    if (deptKey && key === 'viewDeptIds' && Array.isArray(v)) return v.map(function (x) { return typeof x === 'string' ? deptKey(x) : keyValue(x, '', deptKey); }).sort();
+    if (Array.isArray(v)) return v.map(function (x) { return keyValue(x, '', deptKey); });
+    if (v && typeof v === 'object') {
+      var out = {};
+      Object.keys(v).sort().forEach(function (k) { out[k] = keyValue(v[k], k, deptKey); });
+      return out;
+    }
+    return v === undefined ? null : v;
+  }
+
+  /**
+   * 計画の「中身の目印」。各 op の action と args の全部を、決まった順の文字にしたもの（label は使わない）。
+   * 社員の op の中の部署ID（deptId・viewDeptIds）は、その計画に使った data での部署の名前の鍵に置き換える
+   * → 仮の ID で立てた計画と、保存の後に本物の ID で立てた計画が、送る中身が同じなら同じ目印になる。data に無い ID は、ID のまま
+   */
+  function planKey(plan, data) {
+    var names = {};
+    data.departments.forEach(function (d) { names[d.deptId] = nameKey(d.name); });
+    function deptKey(id) { return Object.prototype.hasOwnProperty.call(names, id) ? 'name:' + names[id] : 'id:' + id; }
+    var ops = plan && Array.isArray(plan.ops) ? plan.ops : [];
+    return JSON.stringify(ops.map(function (op) {
+      // 部署の op は仮の ID を持たない（足すときは deptId: null）ので、そのまま
+      return { action: op.action, args: keyValue(op.args, '', op.action === SAVE_DEPT ? null : deptKey) };
+    }));
+  }
+
+  function hasTempIn(v, key) {
+    if (typeof v === 'string') return (key === 'deptId' || key === 'viewDeptIds') && v.indexOf(TEMP_ID) === 0;
+    if (Array.isArray(v)) return v.some(function (x) { return hasTempIn(x, key); });
+    if (v && typeof v === 'object') return Object.keys(v).some(function (k) { return hasTempIn(v[k], k); });
+    return false;
+  }
+
+  /** op の args のどこか（next・base・history の中も）に、仮の部署ID が残っているか（送る直前の最後の確かめ） */
+  function hasTempId(ops) {
+    return (ops || []).some(function (op) { return hasTempIn(op.args, ''); });
   }
 
   var api = {
-    DEPT_HEADERS: DEPT_HEADERS, EMP_HEADERS: EMP_HEADERS,
+    DEPT_HEADERS: DEPT_HEADERS, EMP_HEADERS: EMP_HEADERS, EMP_SKIPPED: EMP_SKIPPED, SKIPPED_NOTE: SKIPPED_NOTE, TEMP_ID: TEMP_ID,
+    departmentRows: departmentRows, employeeRows: employeeRows, afterDepartments: afterDepartments, planKey: planKey, hasTempId: hasTempId,
     nameKey: nameKey, parseDate: parseDate, parseMinutes: parseMinutes, effective: effective, splitTsv: splitTsv, cellOut: cellOut,
     exportDepartments: exportDepartments, exportEmployees: exportEmployees, planDepartments: planDepartments, planEmployees: planEmployees,
     fmtDateJa: fmtDateJa,

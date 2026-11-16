@@ -7,6 +7,9 @@
  * 送り方: すべての操作を1つの順番待ちの列で送る（前の答えが返ってから次。答えの版を使う）。通信の結果が分からないときは同じ requestId で送り直す。
  *         CONFLICT（ほかの人が直した）のときは自分の入力を残し、「最新を読む」「自分の入力をもう一度送る」を選べる
  *         「見た」「✕」は版を上げない印なので、列を通さずに送る
+ *         月の表の空きのマスに 1 件打って足すときは、保存を待たずに「保存中」の仮のタスクを出して続けて打てる（答えが来たら本物に差し替える。月は読み直さない）
+ *         月の表でタスクのマスを空にする（選んで Backspace・Delete）と、確かめてから消す
+ *         消した後は 10 秒「元に戻す」の帯を出す（task.restore。計画 docs/plans/stage2-task-undo-delete-plan.md 第3章）
  * 表示の計算（並び・締め切りの印・部署の人・まとめ）は task_view.js、入力のダイアログは task_dialogs.js
  */
 (function () {
@@ -19,6 +22,7 @@
     var DOW = ['日', '月', '火', '水', '木', '金', '土'];
     var VIEW_KEY = 'mp_tasks_view', DEPT_KEY = 'mp_tasks_dept', TEXT_KEY = 'mp_tasks_text';
     var UNDO_MS = 5000;
+    var UNDO_DELETE_MS = 10000; // 消した後の帯（ユーザー決定 2026-11-16 Q2: A 10 秒）。時計は、その回の消すがすべて終わってから数える
     var me = null, data = null, ym = null, grid = null, mode = null, day = null;
     var deptId = null;     // 見ている部署（'' = 全員。null = まだ決めていない）
     var textMode = 'clip'; // 長い内容: clip（1行で切る）・wrap（全部出す）
@@ -28,9 +32,14 @@
     var cols = [];         // 表に出している人
     var queue = [];        // 送る操作の列
     var sending = false;
+    var current = null;    // 送っている最中の操作
+    var tmpSeq = 0;        // 月の表で打って足した「保存中」の仮のタスクの連番
+    var muteCleared = false; // 消すかを確かめている間、表の部品の「セルを空にしました」の知らせを出さない
+    var rebuildTyped = null; // 打って足した後、表を作り直すのを待っている間の「打ったマス」{ r, c }
     var failed = null;     // CONFLICT などで止まった操作 { op, message }
     var seenSent = {};     // 「見た」を送ったタスク（タスクID:版）
-    var undo = null;       // 完了にした直後の帯 { taskId, timer }
+    var undo = null;       // 帯: 完了にした直後 { kind: 'complete', taskId, timer }／消した直後 { kind: 'delete', batch, timer }
+    var latestBatch = null; // いちばん新しい「消す」の束（確かめの窓で「消す」を押した回ごと。{ done: [消せた分], ops: [消すの操作] }）
     var explicitMonth = false, firstLoad = true;
     // 前に開いたときの内容（控え）を先に出す（計画 stage2-switch-speed-plan.md 1-3）
     var stale = false;     // 控えを出している間（loading は立てたまま。書く操作はすべて loading で止まる）
@@ -70,6 +79,9 @@
     function load(first) {
       var my = ++loadSeq;
       var args = { month: ym };
+      // 同じ月の読み直し（操作の後・「新しくする」）では、表の位置と選んでいるマスを保つ。初めて開いたとき・控えの後・月を切り替えたときは今日の段へ
+      var keep = !first && !!data && !stale && data.month === ym;
+      var hadFocus = keep && tableFocused();
       setLoading(true);
       var p = first ? MP.guard.enter({ load: { action: 'task.month', args: args }, noLoadingNote: stale, onFail: staleFailed })
         : MP.api.call('task.month', args).then(function (res) { return { me: me, res: res }; });
@@ -97,12 +109,14 @@
         sideUnknown = false; // 最新を読めた
         ui.$('stale-note').hidden = true;
         saveView(); // 描く前に（描くと「依頼を見た印」の通信が始まることがある）
-        adopt();
+        restorePending();
+        adopt(keep);
+        if (hadFocus && mode === 'table' && grid) grid.focus(); // 表の中で打っていたら、押し直さずに続けて打てるように
       });
     }
 
-    /** data（本物の答え・控え）を画面に出す。日と部署を決めてから描く */
-    function adopt() {
+    /** data（本物の答え・控え）を画面に出す。日と部署を決めてから描く。keep = 月の表の位置と選んでいるマスを保つ（同じ月の読み直し） */
+    function adopt(keep) {
       ui.$('view').hidden = false;
       ui.$('to-export').hidden = !MP.guard.isAdmin(me) || viewing();
       if (!day || day.slice(0, 7) !== ym) day = data.taskToday.slice(0, 7) === ym ? data.taskToday : data.from;
@@ -111,9 +125,35 @@
         var saved = got(DEPT_KEY);
         deptId = saved !== null && (saved === '' || data.departments.some(function (d) { return d.deptId === saved; })) ? saved : (data.myDeptId || '');
       } else if (deptId !== '' && !data.departments.some(function (d) { return d.deptId === deptId; })) deptId = '';
-      jumpToday = true;
+      jumpToday = !keep;
       render();
     }
+
+    /** まだ送り終わっていない操作（送っている最中・止まっている・列で待っている） */
+    function pendingOps() { return (current ? [current] : []).concat(failed ? [failed.op] : [], queue); }
+
+    /** 月を読み直して data を入れ替えた後: まだ送り終わっていない操作の仮のタスク（保存中）を入れ直す */
+    function restorePending() {
+      pendingOps().forEach(function (o) {
+        var t = o.tmp;
+        if (!t || data.items.indexOf(t) >= 0) return;
+        if (t.date < data.from || t.date > data.to) return; // ほかの月の分は入れない（止まったまま月を移したとき）
+        // 結果が分からず止まった操作は、サーバーで入っていることがある。同じ担当・日・内容の本物があれば重ねない
+        // （取り違えても見かけだけ。操作は止まったまま残り、「もう一度送る」で入る）
+        if (failed && failed.op === o && failed.kind === 'unknown' && data.items.some(function (i) {
+          return !i.pending && i.owner === t.owner && i.date === t.date && i.content === t.content && i.state === '未完了';
+        })) return;
+        data.items.push(t);
+      });
+    }
+
+    /** やめた操作の仮のタスクを外す（読み直しに失敗しても「保存中」のまま残さない） */
+    function dropPending(ops) {
+      ops.forEach(function (o) { var k = o.tmp ? data.items.indexOf(o.tmp) : -1; if (k >= 0) data.items.splice(k, 1); });
+    }
+
+    /** 月の表の中にフォーカスがあるか（表を作り直した後に戻すため） */
+    function tableFocused() { return mode === 'table' && !!grid && ui.$('grid').contains(document.activeElement); }
 
     /** 控えを出している間に、最新を読めなかった: 一言を変える（止めたままなのは loading が立ったままだから） */
     function staleFailed() {
@@ -130,7 +170,8 @@
     function saveView() {
       if (viewing()) return;
       var ok = gotFresh && !stale && !loading && !sending && !queue.length && !failed && !sideCalls && !sideUnknown
-        && !!data && !!me && data.month === String(data.taskToday).slice(0, 7);
+        && !!data && !!me && data.month === String(data.taskToday).slice(0, 7)
+        && !data.items.some(function (i) { return i.pending; }); // 「保存中」の仮のタスクは控えに書かない（念のため）
       if (ok) MP.store.setTaskView(me.employeeId, data); else MP.store.clearTaskView();
     }
 
@@ -295,15 +336,40 @@
 
     // ------------------------------------------------------------------ 月の表
 
-    function buildRows() {
-      rows = [];
-      cols = shownPeople();
+    function calcRows(people) {
+      var out = [];
       for (var n = CT.dayNumber(data.from); n <= CT.dayNumber(data.to); n++) {
         var d = CT.dateOf(n);
         var max = 0;
-        cols.forEach(function (p) { max = Math.max(max, TV.entries(data, p.employeeId, d).length); });
-        for (var k = 0; k <= max; k++) rows.push({ date: d, idx: k, first: k === 0, count: max });
+        people.forEach(function (p) { max = Math.max(max, TV.entries(data, p.employeeId, d).length); });
+        for (var k = 0; k <= max; k++) out.push({ date: d, idx: k, first: k === 0, count: max });
       }
+      return out;
+    }
+
+    function buildRows() {
+      cols = shownPeople();
+      rows = calcRows(cols);
+    }
+
+    /** 今の data で作り直しても、表の行と列が今出しているものと同じか（同じなら塗り直すだけで足りる） */
+    function sameTable() {
+      var p = shownPeople();
+      if (p.length !== cols.length || p.some(function (x, i) { return x.employeeId !== cols[i].employeeId; })) return false;
+      var next = calcRows(p);
+      return next.length === rows.length && next.every(function (x, i) { return x.date === rows[i].date && x.idx === rows[i].idx && x.count === rows[i].count; });
+    }
+
+    /** 作り直す前に選んでいた行（at = { date, idx }）が、新しい表の何行目か。その段が無くなっていたら、その日の最後の行 */
+    function rowFor(at, fallback) {
+      if (!at) return fallback;
+      var last = -1;
+      for (var k = 0; k < rows.length; k++) {
+        if (rows[k].date !== at.date) continue;
+        if (rows[k].idx === at.idx) return k;
+        last = k;
+      }
+      return last >= 0 ? last : fallback;
     }
 
     /** 表のマス: 0 列目 = 番号、1〜 = 担当、最後 = 申し送り */
@@ -322,8 +388,10 @@
       return TV.handovers(data, deptId, date).map(function (x) { return (x.kind === 'memo' ? '〔前のメモ〕' : '') + x.h.content.replace(/\n/g, ' '); }).join(' ／ ');
     }
 
-    function renderTable() {
+    /** 月の表を作り直す。typed = 打って足した直後の「打ったマス」{ r, c }（すぐ下へ動いていたら、足した行のすぐ下の空きのマスを選ぶ） */
+    function renderTable(typed) {
       var keep = grid ? grid.selection() : null;
+      var at = keep && rows[keep.r2] ? { date: rows[keep.r2].date, idx: rows[keep.r2].idx } : null;
       var sc0 = ui.$('grid').querySelector('.grid-scroll');
       var top0 = sc0 ? sc0.scrollTop : 0, left0 = sc0 ? sc0.scrollLeft : 0;
       buildRows();
@@ -350,10 +418,10 @@
           return '';
         },
         editable: function (r, c) {
-          if (viewing() || sending || loading) return false;
+          if (viewing() || loading) return false;
           var x = cellOf(r, c);
-          if (x.kind === 'task') return x.it.can.edit;
-          if (x.kind === 'empty') return x.owner.active;
+          if (x.kind === 'task') return !sending && !x.it.pending && x.it.can.edit;
+          if (x.kind === 'empty') return !failed && x.owner.active; // 空きのマスは、前の保存を待たずに続けて打てる
           return false; // 番号・申し送り（申し送りは上の欄で書く・直す）・空きの下
         },
         cellState: function (r, c) {
@@ -367,16 +435,20 @@
           return { cls: (x.kind === 'no' ? 'tk-no' : '') + edge };
         },
         change: onGridChange,
-        notify: function (text, kind) { ui.pageMessage(text, kind || 'warn'); },
+        notify: function (text, kind) { if (muteCleared && text.indexOf('空にしました') >= 0) return; ui.pageMessage(text, kind || 'warn'); },
       });
       var sc = ui.$('grid').querySelector('.grid-scroll');
       var y = window.scrollY; // 描き直しでページ全体が動かないように（マスを選ぶと、表の部品がそのマスを見える位置へ動かすため）
       if (jumpToday) {
         jumpToday = false;
         goToDayInTable(day);
-      } else if (keep && keep.r2 < rows.length && keep.c2 < columns.length) {
-        grid.select(keep.r2, keep.c2);
-        if (sc) { sc.scrollTop = top0; sc.scrollLeft = left0; }
+      } else if (keep && keep.c2 < columns.length) {
+        // 選んでいたマスを引き継ぐ（同じ日・同じ段。行が増えたり減ったりしても、ずれない）
+        var r = typed && keep.r2 === typed.r + 1 && keep.c2 === typed.c ? keep.r2 : rowFor(at, keep.r2);
+        if (r < rows.length) {
+          grid.select(r, keep.c2);
+          if (sc) { sc.scrollTop = top0; sc.scrollLeft = left0; }
+        }
       }
       window.scrollTo(0, y);
       updateTools();
@@ -407,24 +479,91 @@
 
     /** 打った・貼り付けた内容（まとめて） */
     function onGridChange(list) {
-      var adds = [];
+      var adds = [], dels = [], kept = 0;
       list.forEach(function (ch) {
         var x = cellOf(ch.r, ch.c);
         var v = String(ch.value || '').replace(/^[\s　]+|[\s　]+$/g, '');
         if (x.kind === 'empty' && v !== '') {
           adds.push({ ownerId: x.owner.employeeId, date: x.date, content: v });
+        } else if (x.kind === 'task' && v === '') {
+          // タスクのマスを空にした（選んで Backspace・Delete など）: 消したい。消せるタスクだけ集め、下で 1 回だけ確かめる
+          if (x.it.can.del && !x.it.pending) dels.push(x.it); else kept++;
         } else if (x.kind === 'task' && v !== '' && v !== x.it.content) {
           var id = x.it.taskId;
           enqueue({ action: 'task.update', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0, content: v }; }, label: '「' + v + '」' });
         }
       });
-      if (adds.length === 1) enqueue({ action: 'task.add', args: function () { return Object.assign({ urgency: '通常', hidden: false }, adds[0]); }, label: '「' + adds[0].content + '」', reload: true });
+      if (adds.length === 1) addQuick(adds[0], { r: list[0].r, c: list[0].c });
       else if (adds.length > 1) {
         for (var i = 0; i < adds.length; i += 50) {
           (function (part, last) { enqueue({ action: 'task.addMany', args: function () { return { items: part }; }, label: part.length + ' 件のタスク', reload: last }); })(adds.slice(i, i + 50), i + 50 >= adds.length);
         }
       }
+      if (dels.length || kept) askDelete(dels, kept); // 足す・直すは上ですぐ送る。消すのは確かめてから
       if (grid) grid.refresh();
+    }
+
+    /**
+     * 月の表でタスクのマスを空にした: 確かめの窓を 1 回だけ出して、消す。
+     * list = 消せるタスク、kept = 消せないタスクの数（残す）。「消す」なら 1 件ずつ列に積み、月の読み直しは最後の 1 回だけ
+     */
+    function askDelete(list, kept) {
+      // 表の部品がこの後に出す「◯ 個のセルを空にしました」は出さない（消したのではなく、これから確かめるので）
+      muteCleared = true;
+      Promise.resolve().then(function () { muteCleared = false; });
+      if (!list.length) { ui.pageMessage(kept === 1 ? 'このタスクは消せません' : '選んだタスクは消せません', 'warn'); return; }
+      var text = list.length === 1 ? '「' + list[0].content + '」を消しますか？'
+        : list.length + ' 件のタスクを消しますか？\n' + list.slice(0, 5).map(function (i) { return '・' + i.content; }).join('\n') + (list.length > 5 ? '\nほか ' + (list.length - 5) + ' 件' : '');
+      if (kept) text += '\n消せない ' + kept + ' 件は残します';
+      ui.confirm('タスクを消す', text, '消す', 'danger').then(function (ok) {
+        if (mode === 'table' && grid) grid.focus(); // 窓を閉じた後も、表のキー操作を続けられるように
+        if (!ok || refuseLoading()) return;
+        var ids = list.map(function (i) { return i.taskId; }).filter(function (id) { return !!findItem(id); }); // 窓を出している間に無くなったものは送らない
+        var batch = newBatch();
+        ids.forEach(function (id, k) {
+          var it = findItem(id);
+          enqueueDelete(batch, { action: 'task.delete', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0 }; },
+            label: '「' + it.content + '」', reload: k === ids.length - 1 });
+        });
+      });
+    }
+
+    /**
+     * 空きのマスに 1 件打って足した: 保存を待たずに「保存中」の仮のタスクとして表に出し、続けて打てるようにする。
+     * 答えが来たら仮のタスクを本物に差し替える（applyResult。月を読み直さない）
+     */
+    function addQuick(a, typed) {
+      if (refuseLoading()) return; // 読み込みの間は足さない（仮のタスクも出さない）
+      var n = ++tmpSeq;
+      var tmp = { taskId: 'tmp-' + n, pending: true, owner: a.ownerId, date: a.date, content: a.content, state: '未完了', urgency: '通常', hidden: false,
+        requester: '', requesterName: '', due: '', dueTime: '', note: '', consult: null, fresh: false, deferCount: 0, remindTime: '', recordVersion: 0,
+        rank: 99999 + n, order: 99999 + n, // その日の最後に並ぶ
+        can: { edit: false, complete: false, defer: false, cancel: false, del: false, move: false, consult: false, note: false, remind: false } };
+      data.items.push(tmp);
+      enqueue({ action: 'task.add', args: function () { return Object.assign({ urgency: '通常', hidden: false }, a); }, label: '「' + a.content + '」', tmp: tmp });
+      rebuildSoon(typed);
+    }
+
+    /**
+     * 行の数が変わったので、月の表を作り直す。表の部品は「内容を渡す → その後に選んでいるマスを下へ動かす」の順なので、
+     * 渡された中ですぐ作り直すと、移動が古い表に掛かって失われる。動き終わった後（この出来事の処理の直後）に作り直す
+     */
+    function rebuildSoon(typed) {
+      var waiting = !!rebuildTyped;
+      rebuildTyped = typed;
+      if (waiting) return;
+      Promise.resolve().then(function () {
+        var t = rebuildTyped;
+        rebuildTyped = null;
+        if (mode !== 'table' || !grid || loading) return; // 読み込みの間は、読み終わったときに作り直す
+        var had = tableFocused();
+        var y = window.scrollY;
+        jumpToday = false;
+        renderTable(t);
+        renderSide();
+        if (had) grid.focus(); // マウスで押し直さずに、続けて打てるように
+        window.scrollTo(0, y);
+      });
     }
 
     /** 選んでいるセルのタスク（無ければ null） */
@@ -574,7 +713,7 @@
 
     function stateOp(it, op, extra) {
       var id = it.taskId;
-      hideUndo();
+      dropUndo();
       enqueue({ action: 'task.state', args: function () { var cur = findItem(id); return Object.assign({ taskId: id, baseVersion: cur ? cur.recordVersion : 0, op: op }, extra || {}); },
         label: '「' + it.content + '」', reload: op === 'defer', undo: op === 'complete' });
     }
@@ -671,9 +810,9 @@
 
     function deleteOp(it) {
       return ui.confirm('タスクを消す', '「' + it.content + '」を消しますか？', '消す', 'danger').then(function (ok) {
-        if (!ok) return;
+        if (!ok || refuseLoading()) return;
         var id = it.taskId;
-        enqueue({ action: 'task.delete', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0 }; }, label: '「' + it.content + '」', reload: true });
+        enqueueDelete(newBatch(), { action: 'task.delete', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0 }; }, label: '「' + it.content + '」', reload: true });
       });
     }
 
@@ -712,23 +851,117 @@
       if (undo && undo.timer) window.clearTimeout(undo.timer);
       undo = null;
       ui.$('undo-bar').hidden = true;
+      ui.$('undo-btn').disabled = false;
+      ui.$('undo-btn').textContent = '元に戻す';
+    }
+
+    /** 帯を消し、前の「消す」の束も画面から戻せなくする（新しい操作の帯に替わる・月を切り替えた。計画 第0章 8） */
+    function dropUndo() {
+      hideUndo();
+      latestBatch = null;
     }
 
     function showUndo(it) {
-      hideUndo();
+      dropUndo();
+      if (viewing()) return;
       ui.$('undo-text').textContent = '「' + it.content + '」を完了にしました';
+      ui.$('undo-note').hidden = false;
       ui.$('undo-bar').hidden = false;
-      undo = { taskId: it.taskId, timer: window.setTimeout(hideUndo, UNDO_MS) };
+      undo = { kind: 'complete', taskId: it.taskId, timer: window.setTimeout(hideUndo, UNDO_MS) };
+    }
+
+    /** 確かめの窓で「消す」を押した回ごとの束（前の帯は、ここで替わる） */
+    function newBatch() {
+      dropUndo();
+      latestBatch = { done: [], ops: [] };
+      return latestBatch;
+    }
+
+    /** 消すの操作を束に入れて列に積む */
+    function enqueueDelete(batch, op) {
+      op.delBatch = batch;
+      batch.ops.push(op);
+      enqueue(op);
+    }
+
+    /**
+     * 消すが成功した: 戻すのに要る値（消した後の版・消したときの requestId）を覚え、帯を出す・文を書き直す。
+     * 帯の時計はここでは始めない（その回の消すと月の読み直しがすべて終わった後に renderUndo が始める）
+     */
+    function noteDeleted(op, item) {
+      var batch = op.delBatch;
+      batch.done.push({ taskId: item.taskId, baseVersion: item.recordVersion, deleteRequestId: op.rid, content: item.content });
+      if (batch !== latestBatch || viewing()) return; // 帯がもう新しい操作のものに替わった
+      if (!undo || undo.batch !== batch) {
+        hideUndo();
+        undo = { kind: 'delete', batch: batch, timer: null };
+      }
+      ui.$('undo-text').textContent = batch.done.length === 1 ? '「' + batch.done[0].content + '」を消しました' : batch.done.length + ' 件を消しました';
+      ui.$('undo-note').hidden = true;
+      ui.$('undo-bar').hidden = false;
+      // ここで renderUndo を呼ばない（最後の 1 件の後は、この直後に月の読み直しが始まる。時計は読み直しの後の renderQueue で始める）
+    }
+
+    /**
+     * 消した帯のボタンと時計。送れなかった窓が出ている間・戻している間は押せない。
+     * 時計は、その回の消すがどれも列に残っていない（成功した か 捨てた）・読み込み中でないときに始める（止まっている間は始めない）
+     */
+    function renderUndo() {
+      if (!undo || undo.kind !== 'delete') return;
+      var b = undo.batch, pend = pendingOps();
+      var restoring = pend.some(function (o) { return o.restore === b; });
+      var btn = ui.$('undo-btn');
+      btn.disabled = !!failed || restoring;
+      btn.textContent = restoring ? '元に戻しています…' : '元に戻す';
+      if (!undo.timer && !loading && !sending && !b.ops.some(function (o) { return pend.indexOf(o) >= 0; })) {
+        undo.timer = window.setTimeout(function () { if (undo && undo.batch === b) dropUndo(); }, UNDO_DELETE_MS);
+      }
+    }
+
+    /** 「元に戻す」（消した帯）: まだ送っていない消すを外し、消せた分を task.restore で戻す（中身は送る直前に作る。100 件ずつ） */
+    function restoreBatch(b) {
+      if (failed || refuseLoading()) return;
+      if (pendingOps().some(function (o) { return o.restore === b; })) return; // もう戻している
+      queue = queue.filter(function (o) { return o.delBatch !== b; }); // 消していないので、戻すものも無い
+      var max = b.done.length + (current && current.delBatch === b ? 1 : 0); // 送っている最中の 1 件は止められない（成功すれば戻す）
+      var size = data.rules.restoreMax || 100;
+      var tally = { ok: 0, errors: [] };
+      for (var k = 0; k * size < max; k++) {
+        (function (k) {
+          enqueue({ action: 'task.restore', label: '元に戻す', restore: b, restoreTally: tally, noRetry: true, args: function () {
+            var part = b.done.slice(k * size, (k + 1) * size);
+            if (!part.length) return null;
+            this.reload = this.last = (k + 1) * size >= b.done.length; // 最後の塊の後に月を読み直す
+            return { items: part.map(function (e) { return { taskId: e.taskId, baseVersion: e.baseVersion, deleteRequestId: e.deleteRequestId }; }) };
+          } });
+        })(k);
+      }
+      renderQueue();
+    }
+
+    /** 戻した答え（塊ごと）。最後の塊の後に、戻せなかったものだけ理由を 1 回だけ出して帯を消す */
+    function tallyRestore(op, d) {
+      var t = op.restoreTally;
+      d.results.forEach(function (x) {
+        if (x.status !== 'error') { t.ok++; return; }
+        var e = op.restore.done.filter(function (z) { return z.taskId === x.taskId; })[0];
+        t.errors.push('「' + (e ? e.content : x.taskId) + '」: ' + x.message);
+      });
+      if (!op.last) return;
+      if (undo && undo.batch === op.restore) dropUndo();
+      if (!t.errors.length) ui.pageMessage('元に戻しました', 'ok');
+      else ui.pageMessage((t.ok ? t.ok + ' 件を元に戻しました。' : '') + t.errors.length + ' 件は元に戻せませんでした:\n' + t.errors.join('\n'), 'warn');
     }
 
     ui.$('undo-btn').addEventListener('click', function () {
+      if (undo && undo.kind === 'delete') { restoreBatch(undo.batch); return; }
       if (!undo || loading) return;
       var it = findItem(undo.taskId);
       hideUndo();
       if (it && it.state === '完了') stateOp(it, 'reopen');
     });
     ui.$('undo-note').addEventListener('click', function () {
-      if (!undo || loading) return;
+      if (!undo || undo.kind !== 'complete' || loading) return;
       var it = findItem(undo.taskId);
       hideUndo();
       if (it && it.state === '完了') noteOp(it);
@@ -736,8 +969,14 @@
 
     // ------------------------------------------------------------------ 順番待ちの列
 
+    /** 読み込みの間の操作は断る（古い姿のまま送らない）。断ったら真 */
+    function refuseLoading() {
+      if (loading) ui.pageMessage('読み込み中です。終わってからもう一度操作してください', 'error');
+      return loading;
+    }
+
     function enqueue(op) {
-      if (loading) { ui.pageMessage('読み込み中です。終わってからもう一度操作してください', 'error'); return; } // 古い姿のまま送らない
+      if (refuseLoading()) return;
       op.rid = MP.api.newRequestId();
       queue.push(op);
       pump();
@@ -760,28 +999,31 @@
         var btns = [];
         if (failed.kind === 'unknown') {
           btns.push(button('もう一度送る', function () { failed = null; queue.unshift(op); pump(); }));
-          btns.push(button('やめて最新を読む', function () { failed = null; queue = []; reloadNow(); }));
+          btns.push(button('やめて最新を読む', function () { failed = null; dropPending([op].concat(queue)); queue = []; reloadNow(); }));
         } else if (failed.kind === 'conflict') {
-          btns.push(button('最新を読む（自分の入力は捨てる）', function () { failed = null; queue = []; reloadNow(); }));
+          btns.push(button('最新を読む（自分の入力は捨てる）', function () { failed = null; dropPending([op].concat(queue)); queue = []; reloadNow(); }));
           if (!op.noRetry) btns.push(button('自分の入力をもう一度送る', function () { failed = null; reloadNow().then(function () { op.rid = MP.api.newRequestId(); op.sent = null; queue.unshift(op); pump(); }); }));
         } else {
-          btns.push(button('閉じる', function () { failed = null; reloadNow(); }));
+          // 断られた操作は捨てる（仮のタスクも消える）。列に残りがあれば、読み直した後に続きを送る
+          btns.push(button('閉じる', function () { failed = null; dropPending([op]); reloadNow().then(pump); }));
         }
         f.appendChild(ui.el('div', { class: 'item-actions' }, btns));
         if (f.scrollIntoView) f.scrollIntoView({ block: 'nearest' });
       }
       if (mode === 'table' && grid) updateTools(); // 送っている間・止まっている間は、操作のボタンを止める
       Array.prototype.forEach.call(document.querySelectorAll('#day-list button.tk-check, #day-list button.tk-main, #notices button'), function (b) { b.disabled = sending || loading || !!failed; });
+      renderUndo();
     }
 
     function reloadNow() { return ui.run(function () { return load(false); }); }
 
     function pump() {
-      if (sending || failed || !queue.length) { renderQueue(); return; }
+      if (sending || failed || loading || !queue.length) { renderQueue(); return; } // 読み込みの間は送らない（読み終わった後に pump が呼ばれる）
       var op = queue.shift();
       if (!op.sent) op.sent = op.args(); // 中身は最初に送るときに固める（送り直しでは同じ中身）
       if (!op.sent) { pump(); return; }   // 送るものが無い（並べ替えで端など）
       sending = true;
+      current = op;
       renderQueue();
       if (grid) grid.refresh();
       var attempt = function (tries) {
@@ -792,7 +1034,10 @@
         });
       };
       attempt(1).then(function (res) {
+        // この後に月を読み直す操作: 表を作り直す前に、打っている途中の空きのマスを確定して列に積む（sending のうちに。読み直した後で送る）
+        if (res.ok && op.reload && tableFocused() && grid.isEditing()) { grid.commitEdit(); grid.focus(); }
         sending = false;
+        current = null;
         if (!res.ok) {
           var unknown = res.code === 'NETWORK' || res.code === 'BUSY' || res.code === 'INTERNAL';
           failed = { op: op, kind: unknown ? 'unknown' : res.code === 'CONFLICT' ? 'conflict' : 'refused', message: res.message || '送れませんでした' };
@@ -801,36 +1046,57 @@
           return;
         }
         applyResult(op, res.data);
+        if (op.delBatch && res.data.item) noteDeleted(op, res.data.item);
         if (MP.remind) MP.remind.touch(); // 操作の後、少し待ってからリマインダーの一覧を読み直す（v3 計画 3-4）
-        // 足す・先送り・隠す・消す・並べ替え・申し送りは、印や並び・番号が変わるので読み直す
+        // 足す（ダイアログ・スマホの一覧・まとめて）・先送り・隠す・消す・並べ替え・申し送りは、印や並び・番号が変わるので読み直す
         if (op.reload) return load(false).then(function () { pump(); });
-        jumpToday = false;
-        render();
+        renderAfter();
         if (op.undo && res.data.item && res.data.item.state === '完了') showUndo(res.data.item);
         pump();
       }, function () {
         sending = false;
+        current = null;
         failed = { op: op, kind: 'unknown', message: '送れたか分かりません' };
         renderQueue();
       });
     }
 
     /**
+     * 答えを手元に入れた後に描く。月の表で行と列が変わらなければ、作り直さずに塗り直すだけにする
+     * （次のマスを打っている最中でも、入力の箱を壊さない。表の部品は編集中のマスを塗らない）
+     */
+    function renderAfter() {
+      jumpToday = false;
+      if (mode !== 'table' || !grid || !sameTable()) { render(); return; }
+      grid.refresh();
+      renderSide();
+      renderQueue();
+      sendSeen();
+    }
+
+    /**
      * 答えの姿を手元に入れる（版を次の操作に使う）。
+     * 月の表で打って足した操作（op.tmp）は、仮のタスク（保存中）を答えの本物に差し替える（順位は仮のものを引き継ぐ）。
      * 並びの順位（rank）は月の表の答えにだけ付く（保存した並びの値は画面に来ない）ので、手元の順位を引き継ぐ。
      * 急ぎ・締め切り・状態が変わって群が移ったときの群の中の順は、次に読み直すまで手元の順位のまま
      */
     function applyResult(op, d) {
-      var set = function (it) {
+      var set = function (it, tmp) {
         if (!it) return;
         var k = data.items.map(function (i) { return i.taskId; }).indexOf(it.taskId);
+        if (k < 0 && tmp) k = data.items.indexOf(tmp);
         it.rank = k >= 0 ? data.items[k].rank : 99999;
         it.order = it.rank;
         if (k >= 0) data.items[k] = it; else data.items.push(it);
       };
-      if (d.item && d.item.taskId) set(d.item);
+      if (d.item && d.item.taskId) set(d.item, op.tmp);
+      // 仮のタスクは、本物を入れた後に必ず外す（読み直しで本物と仮のタスクが並んでいたときも、「保存中」を残さない）
+      var left = op.tmp ? data.items.indexOf(op.tmp) : -1;
+      if (left >= 0) data.items.splice(left, 1);
       if (d.results) d.results.forEach(function (x) { set(x.item); });
-      if (d.results && op.tally) {
+      if (d.results && op.restoreTally) {
+        tallyRestore(op, d); // 消したタスクを元に戻した（計画 3-2 の 4.）
+      } else if (d.results && op.tally) {
         // 取り込み: 最後の塊の答えの後に、まとめて 1 回だけ出す
         d.results.forEach(function (x) {
           if (x.status === 'error') op.tally.errors.push('「' + (op.names[x.index] || (x.index + 1) + '件目') + '」: ' + x.message); else op.tally.saved++;
@@ -871,6 +1137,7 @@
       var n = Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1 + k;
       ym = Math.floor(n / 12) + '-' + ('0' + (n % 12 + 1)).slice(-2);
       day = null;
+      dropUndo(); // 月を切り替えたら帯は消す
       reloadNow();
     }
     ui.$('prev').addEventListener('click', function () { shiftMonth(-1); });
@@ -891,6 +1158,7 @@
       }
       if (sending || queue.length) return;
       day = t; ym = t.slice(0, 7);
+      dropUndo();
       reloadNow();
     }
     ui.$('t-today').addEventListener('click', goToday);
@@ -903,6 +1171,7 @@
       if (d >= data.from && d <= data.to) { day = shownDay = d; renderList(); renderSide(); sendSeen(); return; }
       if (sending || queue.length) return; // 送り終わるまで月は動かさない（shiftMonth と同じ）
       day = d; ym = d.slice(0, 7);
+      dropUndo();
       reloadNow();
     }
     ui.$('day-prev').addEventListener('click', function () { goDay(-1); });
