@@ -5,7 +5,8 @@
  *     opts.requestId … 送り直すときに同じものを使う保存（社員マスタ）で渡す。無ければ毎回新しく作る
  *     opts.raw       … 共通の扱い（下の表）をせず、結果をそのまま返す（ログアウト用）
  *     opts.keep      … ['FORBIDDEN'] など。その code だけ共通の扱いをせず返す（タスクの列。ほかの code は今どおり）
- *   答えに serverMs（サーバーの中の処理時間・ミリ秒）があれば res.serverMs に入れる
+ *   答えに serverMs（サーバーの中の処理時間・ミリ秒）があれば res.serverMs に入れる。serverPhases（区切りごとの時間）は決まった鍵だけ res.serverPhases に
+ *   res.sentMark … 送ったときのログインの目印（MP.store.tokenMark()）。控えを書く前に、今のログインと同じかを確かめるため
  *   MP.api.onLeave(fn) … 共通の扱いが画面を移す直前に fn を呼ぶ（送り残しの「離れますか」を止めるため）
  *
  * 通信の失敗・時間切れ（60秒）・JSON でない応答・形の違う応答は、すべて code: 'NETWORK'（結果が分からない）
@@ -34,6 +35,22 @@
   }
 
   var SERVER_MS_MAX = 600000; // サーバーの処理時間として取り込む上限（GAS の 1 回の上限 6 分）
+  // 区切りごとの時間の鍵（計画 stage2-task-open-speed-plan.md 2-3）。これ以外は捨てる
+  var PHASE_KEYS = ['names', 'read', 'parse', 'auth', 'fallback', 'check', 'maintain', 'view', 'me', 'other', 'rows'];
+  var ROWS_NAME = /^[぀-ヿ一-鿿（）]{1,20}$/; // 表の種類の名前（かな・漢字・全角のかっこだけ。サーバーが決まった名前に替えたもの）
+  function okInt(v) { return typeof v === 'number' && isFinite(v) && v >= 0 && Math.floor(v) === v && v <= SERVER_MS_MAX * 100; }
+  /** 答えの serverPhases から、決まった鍵の 0 以上の整数だけを取り出す。rowsBy は名前の形が正しく値が整数のものだけ（30 個まで）。何も無ければ null */
+  function cleanPhases(p) {
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+    var out = {}, any = false;
+    PHASE_KEYS.forEach(function (k) { if (okInt(p[k])) { out[k] = p[k]; any = true; } });
+    if (p.rowsBy && typeof p.rowsBy === 'object' && !Array.isArray(p.rowsBy)) {
+      var by = {}, n = 0;
+      Object.keys(p.rowsBy).forEach(function (k) { if (n < 30 && ROWS_NAME.test(k) && okInt(p.rowsBy[k])) { by[k] = p.rowsBy[k]; n++; } });
+      if (n) { out.rowsBy = by; any = true; }
+    }
+    return any ? out : null;
+  }
   var SAVE_UNKNOWN_TEXT ='保存できたか分かりません。もう一度同じボタンを押してください';
   var RETRY_WAIT_MS = 800;      // 読むだけの処理を黙って送り直すまでの間
   var RETRY_FAST_MS = 10000;    // 通信の失敗を「すぐの失敗」とみなす長さ（これより後の失敗・時間切れは送り直さない）
@@ -70,7 +87,8 @@
     if (!o || typeof o !== 'object') return { res: network(), kind: 'badShape' };
     // serverMs … サーバーの中の処理時間（ミリ秒）。有限の 0 以上の整数のときだけ取り込む（古いサーバーには無い。計画 stage2-task-speed-plan.md 第6章）
     var ms = typeof o.serverMs === 'number' && isFinite(o.serverMs) && o.serverMs >= 0 && Math.floor(o.serverMs) === o.serverMs && o.serverMs <= SERVER_MS_MAX ? o.serverMs : null;
-    var withMs = function (r) { if (ms !== null) r.serverMs = ms; return r; };
+    var phases = cleanPhases(o.serverPhases);
+    var withMs = function (r) { if (ms !== null) r.serverMs = ms; if (phases) r.serverPhases = phases; return r; };
     if (o.ok === true && Object.prototype.hasOwnProperty.call(o, 'data')) {
       // me … ログインが要る処理の答えに付く「自分の情報」（auth.me と同じ中身。画面を開くときに使う）
       return { res: withMs(o.me && typeof o.me === 'object' ? { ok: true, data: o.data, me: o.me } : { ok: true, data: o.data }), kind: 'ok' };
@@ -166,7 +184,7 @@
    * 送る。読むだけの処理は、決まった失敗のときだけ、少し待って同じ requestId で 1 回だけ送り直す。
    * 待つ長さは、最初の送信からの全体で 60 秒（送り直しは残りだけ待つ。残りが RETRY_MIN_LEFT_MS より少なければ送り直さない）
    */
-  function sendWithRetry(action, args, requestId, viewAs) {
+  function sendWithRetry(action, args, requestId, viewAs, sentMark) {
     var deadline = Date.now() + TIMEOUT_MS;
     return send(action, args, requestId, viewAs, TIMEOUT_MS).then(function (first) {
       if (!first.fail) return first.res;
@@ -175,8 +193,11 @@
         return first.res;
       }
       return new Promise(function (resolve) { setTimeout(resolve, RETRY_WAIT_MS); }).then(function () {
+        // 待つ間にほかのタブでログインが替わったら送り直さない（新しいログインの答えに、古いログインの目印が付くのを防ぐ。版 19 の内部レビュー low）
+        if (MP.store.tokenMark() !== sentMark) return null;
         return send(action, args, requestId, viewAs, Math.max(0, deadline - Date.now()));
       }).then(function (second) {
+        if (!second) { remember(action, [first.fail], false); return first.res; }
         if (second.fail) remember(action, [first.fail, second.fail], true);
         return second.res;
       });
@@ -295,10 +316,18 @@
       var o = opts || {};
       // noViewAs … 社員の画面を見る開始・終了（本人の管理者として送る）
       var sentAs = o.noViewAs ? null : MP.store.viewAs();
-      var p = sendWithRetry(action, args, o.requestId || newRequestId(), sentAs).then(function (res) { return checkViewAs(res, sentAs); });
+      // sentMark … 送ったときのログインの目印（認証・認可には使わない）。控えを書くときに、今のログインと同じかを確かめる（計画 stage2-task-open-speed-plan.md 1-2）
+      var sentMark = MP.store.tokenMark();
+      var p = sendWithRetry(action, args, o.requestId || newRequestId(), sentAs, sentMark).then(function (res) { return checkViewAs(res, sentAs); })
+        .then(function (res) { if (res && typeof res === 'object') res.sentMark = sentMark; return res; });
       if (o.raw) return p;
-      // keep … その code だけは共通の扱い（画面を移る）をせず、答えをそのまま返す（タスクの列の FORBIDDEN。計画 stage2-task-speed-plan.md 3-6）
-      return p.then(function (res) { return !res.ok && Array.isArray(o.keep) && o.keep.indexOf(res.code) >= 0 ? res : common(res); });
+      return p.then(function (res) {
+        // 送ってから答えが届くまでに、ほかのタブでログインが替わった（ログインし直し・ログアウト）→ その答えは前のログインのもの。
+        // 画面に出さず、共通の扱い（UNAUTHORIZED で今のログインを消すなど）もせず、今のログインで開き直す（版 19 の Codex 実装レビュー 1 回目 high・medium）
+        if (sentMark !== MP.store.tokenMark()) { leaving(); window.location.reload(); return never(); }
+        // keep … その code だけは共通の扱い（画面を移る）をせず、答えをそのまま返す（タスクの列の FORBIDDEN。計画 stage2-task-speed-plan.md 3-6）
+        return !res.ok && Array.isArray(o.keep) && o.keep.indexOf(res.code) >= 0 ? res : common(res);
+      });
     },
     /** 共通の扱いが画面を移す直前に呼ぶ関数を足す（送り残しの「離れますか」を止めるため。計画 第5章） */
     onLeave: function (fn) { leaveFns.push(fn); },

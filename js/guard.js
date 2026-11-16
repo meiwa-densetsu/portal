@@ -142,9 +142,10 @@
         if (o.onFail) o.onFail(res);
         return never;
       }
-      function pass(me) {
+      // sentMark … その答えを頼んだときのログインの目印（MP.api.call の答えの res.sentMark）。今のログインと違えば控えを書かない（ほかのタブでログインし直した。計画 stage2-task-open-speed-plan.md 1-2）
+      function pass(me, sentMark) {
         endNote();
-        MP.store.setMe(me); // 次に開くときの控え（仮パスワードのままなら消える。見ている間は何もしない）
+        MP.store.setMe(me, sentMark); // 次に開くときの控え（仮パスワードのままなら消える。見ている間は何もしない）
         if (me.mustChangePassword && !o.allowTemp) { MP.go('password.html'); return false; }
         if (o.admin && me.role !== ROLE_ADMIN) { MP.go('home.html'); return false; }
         renderTopbar(me, o);
@@ -156,7 +157,7 @@
       if (!o.load) {
         var asked = MP.api.call('auth.me', {}).then(function (res) {
           if (!res.ok) return failed(res);
-          return pass(res.data) ? res.data : never;
+          return pass(res.data, res.sentMark) ? res.data : never;
         });
         if (o.instant && early) {
           // 控えですぐに始める。本物の答えは後から onMe に渡す（失敗・画面の移動は上の failed・pass と MP.api の共通の扱いのまま）
@@ -170,10 +171,10 @@
         // retryable … 通信の失敗・混み合いは、画面の側で「もう一度」を出せるように { me: null, res } で返す（手順10 2-4。Codex 実装1回目 medium）
         if (!res.ok && o.retryable && (res.code === 'NETWORK' || res.code === 'BUSY')) { endNote(); return { me: null, res: res }; } // 「読み込み中…」を残さない（内部レビュー medium）
         if (!res.ok) return failed(res);
-        if (res.me && typeof res.me === 'object') return pass(res.me) ? { me: res.me, res: res } : never;
+        if (res.me && typeof res.me === 'object') return pass(res.me, res.sentMark) ? { me: res.me, res: res } : never;
         return MP.api.call('auth.me', {}).then(function (r2) {
           if (!r2.ok) return failed(r2);
-          return pass(r2.data) ? { me: r2.data, res: res } : never;
+          return pass(r2.data, r2.sentMark) ? { me: r2.data, res: res } : never;
         });
       });
     },

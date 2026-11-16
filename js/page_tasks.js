@@ -27,8 +27,9 @@
     // data = 描くための姿（base に、まだ届いていない「押したらすぐ」の操作をかけたもの。rebuildView で作り直す。描く関数は data だけを見る）
     var me = null, base = null, data = null, ym = null, grid = null, mode = null, day = null;
     var rebuildAfterEdit = false; // 月の表で打っている最中に行が変わった: 編集が終わってから表を作り直す（4-2）
+    var freshMark = '';           // 最後に読めた task.month を頼んだときのログインの目印（控えを書く・消すときに渡す。計画 stage2-task-open-speed-plan.md 1-2）
     var TIMING = /(?:^|[?&])timing=1(?:&|$)/.test(window.location.search.slice(1)); // 開くときの時間を出す（第6章）
-    var timing = { stale: null, fresh: null, serverMs: null };
+    var timing = { stale: null, fresh: null, serverMs: null, phases: null };
     var deptId = null;     // 見ている部署（'' = 全員。null = まだ決めていない）
     var textMode = 'clip'; // 長い内容: clip（1行で切る）・wrap（全部出す）
     var openCards = {};    // スマホ: 開いている人の欄（社員ID → 真）
@@ -112,6 +113,9 @@
           return load(false, before);
         }
         firstLoad = false;
+        // 開いたときと違うログインで読んだ（ほかのタブでログインし直した）: この画面は前の人のつもりのままなので、入口からやり直す（1-2。戻るで戻ったときの pageshow と同じ）
+        if (openedAs && r.res.sentMark && r.res.sentMark !== openedAs) { window.location.reload(); return false; }
+        freshMark = r.res.sentMark || '';
         base = r.res.data;
         stale = false;
         gotFresh = true;
@@ -123,7 +127,12 @@
         saveView(); // 描く前に（描くと「依頼を見た印」の通信が始まることがある）
         adopt(keep);
         if (hadFocus && mode === 'table' && grid) grid.focus(); // 表の中で打っていたら、押し直さずに続けて打てるように
-        if (TIMING && timing.fresh === null) { timing.fresh = now(); timing.serverMs = typeof r.res.serverMs === 'number' ? r.res.serverMs : null; renderTiming(); }
+        if (TIMING && timing.fresh === null) {
+          timing.fresh = now();
+          timing.serverMs = typeof r.res.serverMs === 'number' ? r.res.serverMs : null;
+          timing.phases = r.res.serverPhases || null;
+          renderTiming();
+        }
         return true;
       });
     }
@@ -139,10 +148,32 @@
         s.parentNode.insertBefore(n, s);
       }
       var sec = function (ms) { return (Math.round(ms / 100) / 10).toFixed(1) + ' 秒'; };
+      var num = function (ms) { return (Math.round(ms / 100) / 10).toFixed(1); };
       var parts = [];
       if (timing.stale !== null) parts.push('控え ' + sec(timing.stale));
-      if (timing.fresh !== null) parts.push('最新 ' + sec(timing.fresh) + (timing.serverMs !== null ? '（サーバーの中 ' + sec(timing.serverMs) + '）' : ''));
-      n.textContent = parts.join('・');
+      var inner = '';
+      if (timing.serverMs !== null) {
+        inner = 'サーバーの中 ' + sec(timing.serverMs);
+        // 区切り（計画 stage2-task-open-speed-plan.md 2-3）。サーバーが付けた区間だけ（古いサーバーには無い）
+        var p = timing.phases;
+        if (p) {
+          var LABEL = [['names', '名前'], ['read', '読む'], ['parse', '表に'], ['auth', '確かめ'], ['check', '判定'], ['maintain', '保守'], ['view', '作る'], ['me', '自分'], ['other', 'ほか']];
+          var seg = LABEL.filter(function (x) { return typeof p[x[0]] === 'number'; }).map(function (x) { return x[1] + ' ' + num(p[x[0]]); });
+          if (seg.length) inner += ': ' + seg.join('・');
+          if (p.fallback) inner += '（先読みなし ' + p.fallback + ' 回）';
+        }
+        inner = '（' + inner + '）';
+      }
+      if (timing.fresh !== null) parts.push('最新 ' + sec(timing.fresh) + inner);
+      var text = parts.join('・');
+      // 行の多い表の上位 3 つ（管理者の答えにだけある）
+      var by = timing.phases && timing.phases.rowsBy;
+      if (by) {
+        var top = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; }).slice(0, 3).map(function (k) { return k + ' ' + by[k].toLocaleString('ja-JP') + ' 行'; });
+        if (top.length) text += '\n行の多い表: ' + top.join('・') + (typeof timing.phases.rows === 'number' ? '（合計 ' + timing.phases.rows.toLocaleString('ja-JP') + ' 行）' : '');
+      }
+      n.textContent = text;
+      n.style.whiteSpace = 'pre-line';
     }
 
     /** data（本物の答え・控え）を画面に出す。日と部署を決めてから描く。keep = 月の表の位置と選んでいるマスを保つ（同じ月の読み直し） */
@@ -204,7 +235,8 @@
       var ok = gotFresh && !stale && !loading && !sending && !current && !queue.length && !failed && !sideCalls && !sideUnknown
         && !!base && !!me && base.month === String(base.taskToday).slice(0, 7)
         && !base.items.some(function (i) { return i.pending; }); // 「保存中」の仮のタスクは控えに書かない（念のため）
-      if (ok) MP.store.setTaskView(me.employeeId, base); else MP.store.clearTaskView();
+      // 書く・消すのは、最後に読めた task.month を頼んだときのログインと、今のログインが同じときだけ（store が確かめる。計画 stage2-task-open-speed-plan.md 1-2）
+      if (ok) MP.store.setTaskView(me.employeeId, base, freshMark); else MP.store.clearTaskView(freshMark);
     }
 
     /** 控えとして出せる形か（今月・端末の時計の見当と同じ「タスクの今日」・一覧が配列） */
@@ -229,7 +261,7 @@
       } catch (e) { // 控えの中身が今の画面と合わない（古い版の控えなど）: 捨てて、今までどおり最新を待つ
         stale = false; me = null; base = null; data = null; day = null; shownDay = null; deptId = null;
         ui.$('view').hidden = true;
-        MP.store.clearTaskView();
+        MP.store.clearTaskView(MP.store.tokenMark()); // 今のログインで読んだ控えなので、今の目印で消す
         return;
       }
       var n = ui.$('stale-note');

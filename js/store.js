@@ -7,7 +7,8 @@
  *   mp.lastLoginId localStorage（通常のログインのときだけ）  前回選んだ名前
  *   mp.timings     localStorage                 最近20回の通信（処理の名前・かかった時間・日時だけ）
  *   mp.me          token と同じ領域            自分の情報の控え（表示用。{ k: token の目印, me }。計画 stage2-switch-speed-plan.md 1-1）
- *   mp.view.tasks  sessionStorage              タスクリストの今月の控え（表示用。{ k, id: 社員ID, data }。同 1-3）
+ *   mp.view.tasks  localStorage                タスクリストの今月の控え（表示用。{ k, id: 社員ID, data }。同 1-3）。共有のログインでは書かない・使わない。
+ *                  2026-11-16 に sessionStorage から移した（ホーム画面のアイコンから開いても控えを出す。計画 stage2-task-open-speed-plan.md 第1章）。前の版の sessionStorage の分は読むときに消す
  *   mp.remind      sessionStorage              今日の前後 1 日の自分のリマインダーの控え（{ k, id, at, offset, items, more }。計画 stage2-tasklist-v3-plan.md 3-4）
  *   mp.remind.done localStorage                知らせ済みの印（{ 鍵: 時刻 }。鍵は タスクID|日付|時刻|種類。**内容は入れない**。3 日で捨てる。ログアウトでは消さない＝同じ知らせをもう一度出さない）
  *   mp.viewAs     sessionStorage  管理者が見ている社員の画面（そのタブだけ）
@@ -54,6 +55,11 @@
   }
   /** token がある領域（「他の人も使う」は sessionStorage、通常は localStorage）。無ければ null */
   function tokenArea() { return get(S(), K.token) ? S() : get(L(), K.token) ? L() : null; }
+  /** その答えを頼んだときのログイン（目印 sentMark）が、今のログインと同じか。目印が無い・token が無いときは偽（書かない・消さない） */
+  function sameLogin(sentMark) {
+    var t = get(S(), K.token) || get(L(), K.token);
+    return typeof sentMark === 'string' && sentMark !== '' && !!t && sentMark === mark(t);
+  }
   function parse(text) { try { var o = JSON.parse(text); return o && typeof o === 'object' ? o : null; } catch (e) { return null; } }
   function str(v) { return typeof v === 'string' && v !== ''; }
   /** 控えに使える「自分の情報」の形か（仮パスワードのまま・見ている間のものは使わない） */
@@ -92,7 +98,7 @@
     clearToken: function () {
       sealed = true; // 初めに立てる（この後に来る pagehide などで控えを書き直さない）
       del(L(), K.token); del(S(), K.token); del(S(), K.viewAs); // 見ている印も消す（残るとログインの依頼に viewAs が付いて断られる）
-      wipe(L(), K.me); wipe(S(), K.me); wipe(S(), K.taskView); wipe(S(), K.remind); wipe(S(), K.netLog);
+      wipe(L(), K.me); wipe(S(), K.me); wipe(L(), K.taskView); wipe(S(), K.taskView); wipe(S(), K.remind); wipe(S(), K.netLog);
     },
 
     /** 通信が駄目だったときの控え（「詳しく」で出す。新しいものが後ろ。最近の NETLOG_MAX 回まで）。形が違えば空 */
@@ -119,9 +125,14 @@
     },
     /** 今の token の目印（無ければ空）。画面が「開いたときと同じログインか」を見分けるのに使う（認証・認可には使わない） */
     tokenMark: function () { var t = MP.store.token(); return t ? mark(t) : ''; },
-    /** 本物の答えの me を覚える。clearToken の後・token が無い・形が違うときは書かずに消す。見ている間は何もしない */
-    setMe: function (me) {
+    /**
+     * 本物の答えの me を覚える。clearToken の後・token が無い・形が違うときは書かずに消す。見ている間は何もしない。
+     * sentMark … その答えを頼んだときのログインの目印。今のログインと違う・無いときは、書きも消しもしない
+     * （ほかのタブでログインし直した後に届いた古い答えで、新しいログインの控えを書き換えない・消さない。計画 stage2-task-open-speed-plan.md 1-2）
+     */
+    setMe: function (me, sentMark) {
       if (sealed) return;
+      if (!sameLogin(sentMark)) return;
       if (MP.store.viewAs() || (me && me.viewAs)) return;
       var a = tokenArea();
       if (!a || !validMe(me)) { wipe(L(), K.me); wipe(S(), K.me); return; }
@@ -129,23 +140,30 @@
       if (!set(a, K.me, JSON.stringify({ k: mark(MP.store.token()), me: me }))) wipe(a, K.me);
     },
 
-    /** タスクリストの今月の控え（表示用。同 1-3）。今の token・控えの me の社員のものだけ返す */
+    /** タスクリストの今月の控え（表示用。同 1-3）。今の token・控えの me の社員のものだけ返す。localStorage から読む（前の版の sessionStorage の分は消す） */
     taskView: function () {
+      if (get(S(), K.taskView)) wipe(S(), K.taskView); // 前の版（sessionStorage）の控えはもう使わない
       var me = MP.store.me();
       if (!me || MP.store.tokenShared()) return null; // 共有のログイン（他の人も使う端末）では、控えを使わない（前の人の内容を次の人に見せない。仕上げの計画 第3章 C3）
-      var o = parse(get(S(), K.taskView));
+      var o = parse(get(L(), K.taskView));
       return o && o.k === mark(MP.store.token()) && o.id === me.employeeId && o.data && typeof o.data === 'object' ? o.data : null;
     },
-    /** タスクの控えを書く。clearToken の後は何もしない。token が無い・控えの me と社員が違う・大きすぎる・書けないときは消す */
-    setTaskView: function (employeeId, data) {
+    /**
+     * タスクの控えを書く。clearToken の後は何もしない。sentMark が今のログインと違う・無いときは、書きも消しもしない（1-2）。
+     * 共有のログイン・token が無い・控えの me と社員が違う・大きすぎる・書けない（容量が足りない）ときは消す
+     */
+    setTaskView: function (employeeId, data, sentMark) {
       if (sealed) return;
+      if (!sameLogin(sentMark)) return;
       var me = MP.store.me();
-      if (!me || me.employeeId !== employeeId || MP.store.tokenShared()) { wipe(S(), K.taskView); return; } // 共有のログインでは残さない
+      if (!me || me.employeeId !== employeeId) return; // 今のログインの人と違う（ほかのタブでログインし直した）: 書きも消しもしない（1-2）
+      if (MP.store.tokenShared()) { wipe(L(), K.taskView); return; } // 共有のログインでは残さない
       var text;
       try { text = JSON.stringify({ k: mark(MP.store.token()), id: employeeId, data: data }); } catch (e) { text = ''; }
-      if (!text || text.length > VIEW_MAX_CHARS || !set(S(), K.taskView, text)) wipe(S(), K.taskView);
+      if (!text || text.length > VIEW_MAX_CHARS || !set(L(), K.taskView, text)) wipe(L(), K.taskView);
     },
-    clearTaskView: function () { wipe(S(), K.taskView); },
+    /** タスクの控えを消す（書く条件を満たさないとき）。sentMark が今のログインと同じときだけ（ほかのタブの新しいログインの控えを消さない。1-2） */
+    clearTaskView: function (sentMark) { if (sameLogin(sentMark)) wipe(L(), K.taskView); },
 
     /**
      * リマインダーの控え（計画 stage2-tasklist-v3-plan.md 3-4）。今の token・控えの me の社員・頼んだ社員のものだけ返す（形が違えば null）。
