@@ -4,6 +4,9 @@
  *   MP.api.call(action, args, opts) → Promise<{ ok: true, data } | { ok: false, code, message }>
  *     opts.requestId … 送り直すときに同じものを使う保存（社員マスタ）で渡す。無ければ毎回新しく作る
  *     opts.raw       … 共通の扱い（下の表）をせず、結果をそのまま返す（ログアウト用）
+ *     opts.keep      … ['FORBIDDEN'] など。その code だけ共通の扱いをせず返す（タスクの列。ほかの code は今どおり）
+ *   答えに serverMs（サーバーの中の処理時間・ミリ秒）があれば res.serverMs に入れる
+ *   MP.api.onLeave(fn) … 共通の扱いが画面を移す直前に fn を呼ぶ（送り残しの「離れますか」を止めるため）
  *
  * 通信の失敗・時間切れ（60秒）・JSON でない応答・形の違う応答は、すべて code: 'NETWORK'（結果が分からない）
  *   読むだけの処理（READ_ONLY）は、JSON でない・形が違う・すぐの通信の失敗のときだけ、黙って 1 回送り直す（同じ requestId）。
@@ -30,7 +33,8 @@
     return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
   }
 
-  var SAVE_UNKNOWN_TEXT = '保存できたか分かりません。もう一度同じボタンを押してください';
+  var SERVER_MS_MAX = 600000; // サーバーの処理時間として取り込む上限（GAS の 1 回の上限 6 分）
+  var SAVE_UNKNOWN_TEXT ='保存できたか分かりません。もう一度同じボタンを押してください';
   var RETRY_WAIT_MS = 800;      // 読むだけの処理を黙って送り直すまでの間
   var RETRY_FAST_MS = 10000;    // 通信の失敗を「すぐの失敗」とみなす長さ（これより後の失敗・時間切れは送り直さない）
   /*
@@ -64,12 +68,15 @@
     var o;
     try { o = JSON.parse(text); } catch (e) { return { res: network(), kind: 'notJson' }; }
     if (!o || typeof o !== 'object') return { res: network(), kind: 'badShape' };
+    // serverMs … サーバーの中の処理時間（ミリ秒）。有限の 0 以上の整数のときだけ取り込む（古いサーバーには無い。計画 stage2-task-speed-plan.md 第6章）
+    var ms = typeof o.serverMs === 'number' && isFinite(o.serverMs) && o.serverMs >= 0 && Math.floor(o.serverMs) === o.serverMs && o.serverMs <= SERVER_MS_MAX ? o.serverMs : null;
+    var withMs = function (r) { if (ms !== null) r.serverMs = ms; return r; };
     if (o.ok === true && Object.prototype.hasOwnProperty.call(o, 'data')) {
       // me … ログインが要る処理の答えに付く「自分の情報」（auth.me と同じ中身。画面を開くときに使う）
-      return { res: o.me && typeof o.me === 'object' ? { ok: true, data: o.data, me: o.me } : { ok: true, data: o.data }, kind: 'ok' };
+      return { res: withMs(o.me && typeof o.me === 'object' ? { ok: true, data: o.data, me: o.me } : { ok: true, data: o.data }), kind: 'ok' };
     }
     if (o.ok === false && o.error && typeof o.error.code === 'string' && o.error.code && typeof o.error.message === 'string') {
-      return { res: { ok: false, code: o.error.code, message: o.error.message }, kind: 'ok' };
+      return { res: withMs({ ok: false, code: o.error.code, message: o.error.message }), kind: 'ok' };
     }
     return { res: network(), kind: 'badShape' };
   }
@@ -197,6 +204,9 @@
     return res;
   }
 
+  var leaveFns = []; // 共通の扱いが画面を移す直前に呼ぶ関数（MP.api.onLeave）
+  function leaving() { leaveFns.forEach(function (fn) { try { fn(); } catch (e) { /* 移るのを止めない */ } }); }
+
   function common(res) {
     if (res.ok) { MP.store.setReloaded(''); return res; }
     var here = window.location.pathname;
@@ -206,23 +216,28 @@
           return { ok: false, code: 'RELOAD', message: '画面が古くなっています。しばらくしてから開き直してください' };
         }
         MP.store.setReloaded(here);
+        leaving();
         window.location.reload();
         return never();
       case 'UNAUTHORIZED':
         MP.store.clearToken();
         MP.store.setFlash('もう一度ログインしてください');
+        leaving();
         MP.go('login.html');
         return never();
       case 'PASSWORD_CHANGE_REQUIRED':
+        leaving();
         MP.go('password.html');
         return never();
       case 'INVALID_DEVICE':
         MP.store.clearDevice();
         MP.store.setFlash('この端末の登録が無効になりました。もう一度登録してください');
+        leaving();
         MP.go('register.html');
         return never();
       case 'FORBIDDEN':
         MP.store.setFlash('この操作はできません');
+        leaving();
         MP.go('home.html');
         return never();
       default:
@@ -281,7 +296,11 @@
       // noViewAs … 社員の画面を見る開始・終了（本人の管理者として送る）
       var sentAs = o.noViewAs ? null : MP.store.viewAs();
       var p = sendWithRetry(action, args, o.requestId || newRequestId(), sentAs).then(function (res) { return checkViewAs(res, sentAs); });
-      return o.raw ? p : p.then(common);
+      if (o.raw) return p;
+      // keep … その code だけは共通の扱い（画面を移る）をせず、答えをそのまま返す（タスクの列の FORBIDDEN。計画 stage2-task-speed-plan.md 3-6）
+      return p.then(function (res) { return !res.ok && Array.isArray(o.keep) && o.keep.indexOf(res.code) >= 0 ? res : common(res); });
     },
+    /** 共通の扱いが画面を移す直前に呼ぶ関数を足す（送り残しの「離れますか」を止めるため。計画 第5章） */
+    onLeave: function (fn) { leaveFns.push(fn); },
   };
 })();

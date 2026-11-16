@@ -99,6 +99,23 @@ var CalcTask = (function () {
     }
   }
 
+  /**
+   * 画面に返す「できること」の一式（サーバーの task.month の答えと、画面の「押したらすぐ」の姿で同じものを使う。
+   * 計画 stage2-task-speed-plan.md。完了にした・未完了に戻した姿では、直す・消す・リマインダー・相談・一言が変わるため）。
+   * user: { employeeId, role }。task: { owner, requester, hidden, state }
+   */
+  function canAll(user, task) {
+    var me = user ? str_(user.employeeId) : '';
+    return {
+      edit: can(user, task, 'edit'), complete: can(user, task, 'complete'), defer: can(user, task, 'defer'),
+      cancel: can(user, task, 'cancel'), del: can(user, task, 'delete'), move: can(user, task, 'move'),
+      // 相談できるのは、依頼された本人（担当）だけ・未完了のときだけ（v2 計画 2-7。管理者でも担当でなければ不可）
+      consult: !!task && str_(task.requester) !== '' && me !== '' && str_(task.owner) === me && task.state === STATE.OPEN,
+      note: !!task && task.state === STATE.DONE && can(user, task, 'complete'),
+      remind: can(user, task, 'remind'),
+    };
+  }
+
   /** だれの欄に足せるか（計画 2-2）。ownerActive が false（利用停止）の欄には足せない */
   function addKind(user, ownerId, ownerActive) {
     if (!user || !ownerId || ownerActive === false) return null;
@@ -449,7 +466,7 @@ var CalcTask = (function () {
     DAY_KIND: DAY_KIND, DAY_KINDS: DAY_KINDS, HOLIDAY: HOLIDAY, HOLIDAYS: HOLIDAYS, NTH_LAST_WEEKDAY: NTH_LAST_WEEKDAY, NTH_LAST_BIZ: NTH_LAST_BIZ, NTH_RANGE: NTH_RANGE,
     REMIND_KIND: REMIND_KIND, holidayOf: holidayOf, isLongCycle: isLongCycle, remindAt: remindAt, remindKey: remindKey, remindDue: remindDue,
     isDate: isDate, addDays: addDays, dowOf: dowOf, dayNumber: dayNumber, dateOf: dateOf,
-    can: can, addKind: addKind, nextState: nextState, weekendHoliday: weekendHoliday,
+    can: can, canAll: canAll, addKind: addKind, nextState: nextState, weekendHoliday: weekendHoliday,
     nextBusinessDay: nextBusinessDay, autoDeferTarget: autoDeferTarget, recurringDates: recurringDates,
     sortDay: sortDay, groupKey: groupKey, dueLevel: dueLevel, dueLabel: dueLabel, taskToday: taskToday, isTime: isTime,
     urgencyMark: urgencyMark, reportText: reportText, reportFill: reportFill, hasHiddenChar: hasHiddenChar, stripHidden: stripHidden,

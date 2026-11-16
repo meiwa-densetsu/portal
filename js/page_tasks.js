@@ -23,7 +23,12 @@
     var VIEW_KEY = 'mp_tasks_view', DEPT_KEY = 'mp_tasks_dept', TEXT_KEY = 'mp_tasks_text';
     var UNDO_MS = 5000;
     var UNDO_DELETE_MS = 10000; // 消した後の帯（ユーザー決定 2026-11-16 Q2: A 10 秒）。時計は、その回の消すがすべて終わってから数える
-    var me = null, data = null, ym = null, grid = null, mode = null, day = null;
+    // 二つの姿（計画 stage2-task-speed-plan.md 3-1）: base = サーバーの姿（読んだ答え・操作の返事。月の表で打った仮のタスクも入る）、
+    // data = 描くための姿（base に、まだ届いていない「押したらすぐ」の操作をかけたもの。rebuildView で作り直す。描く関数は data だけを見る）
+    var me = null, base = null, data = null, ym = null, grid = null, mode = null, day = null;
+    var rebuildAfterEdit = false; // 月の表で打っている最中に行が変わった: 編集が終わってから表を作り直す（4-2）
+    var TIMING = /(?:^|[?&])timing=1(?:&|$)/.test(window.location.search.slice(1)); // 開くときの時間を出す（第6章）
+    var timing = { stale: null, fresh: null, serverMs: null };
     var deptId = null;     // 見ている部署（'' = 全員。null = まだ決めていない）
     var textMode = 'clip'; // 長い内容: clip（1行で切る）・wrap（全部出す）
     var openCards = {};    // スマホ: 開いている人の欄（社員ID → 真）
@@ -75,8 +80,12 @@
       Array.prototype.forEach.call(document.querySelectorAll('#day-list button, #handovers button, #notices button'), function (b) { b.disabled = v || sending; });
     }
 
-    /** 月を読む。番号で見分け、最後に頼んだ読み込み以外の答えは捨てる（月を続けて切り替えたとき。Codex 実装2回目 medium） */
-    function load(first) {
+    /**
+     * 月を読む。番号で見分け、最後に頼んだ読み込み以外の答えは捨てる（月を続けて切り替えたとき。Codex 実装2回目 medium）。
+     * 読めたら真、読めなければ偽で終わる（3-7。止まった操作の帯は、読めたときだけ先へ進む）。
+     * before … 読めた後、描く前に呼ぶ（止まった操作を捨てる・送り直す整理。読めなければ呼ばない。3-7 の「読めた後の順番」）
+     */
+    function load(first, before) {
       var my = ++loadSeq;
       var args = { month: ym };
       // 同じ月の読み直し（操作の後・「新しくする」）では、表の位置と選んでいるマスを保つ。初めて開いたとき・控えの後・月を切り替えたときは今日の段へ
@@ -86,33 +95,54 @@
       var p = first ? MP.guard.enter({ load: { action: 'task.month', args: args }, noLoadingNote: stale, onFail: staleFailed })
         : MP.api.call('task.month', args).then(function (res) { return { me: me, res: res }; });
       return p.then(function (r) {
-        if (my !== loadSeq) return; // 古い答え
+        if (my !== loadSeq) return false; // 古い答え
         me = r.me;
         // 控えを出している間に読めなかった: 止めたまま（loading を下ろさない）にして、一言だけ変える
-        if (!r.res.ok && stale) { staleFailed(); ui.pageMessage(r.res.message + '\n画面を読み込み直してください', 'error'); return; }
+        if (!r.res.ok && stale) { staleFailed(); ui.pageMessage(r.res.message + '\n画面を読み込み直してください', 'error'); return false; }
         setLoading(false);
         if (!r.res.ok) { // 読めなければ、今出している月と日に戻す（月の移動で day を空にしていても。Codex 実装5回目 medium）
           if (data) { ym = data.month; day = shownDay; render(); }
-          ui.pageMessage(r.res.message, 'error'); return;
+          ui.pageMessage(r.res.message, 'error'); return false;
         }
-        if (r.res.data.month !== ym) return; // 念のため: 頼んだ月と違う答えは使わない
+        if (r.res.data.month !== ym) return false; // 念のため: 頼んだ月と違う答えは使わない
         // 初めに開いたとき: 端末の時計で見当を付けた月が、サーバーの「タスクの今日」の月と違えば、その月を読み直す（月の変わり目の夜中）
         if (firstLoad && !explicitMonth && r.res.data.taskToday.slice(0, 7) !== ym) {
           firstLoad = false;
           ym = r.res.data.taskToday.slice(0, 7);
-          return load(false);
+          return load(false, before);
         }
         firstLoad = false;
-        data = r.res.data;
+        base = r.res.data;
         stale = false;
         gotFresh = true;
         sideUnknown = false; // 最新を読めた
         ui.$('stale-note').hidden = true;
-        saveView(); // 描く前に（描くと「依頼を見た印」の通信が始まることがある）
+        if (before) before(); // 止まった操作の整理（捨てる・送り直す）。描く前に
         restorePending();
+        rebuildView();
+        saveView(); // 描く前に（描くと「依頼を見た印」の通信が始まることがある）
         adopt(keep);
         if (hadFocus && mode === 'table' && grid) grid.focus(); // 表の中で打っていたら、押し直さずに続けて打てるように
+        if (TIMING && timing.fresh === null) { timing.fresh = now(); timing.serverMs = typeof r.res.serverMs === 'number' ? r.res.serverMs : null; renderTiming(); }
+        return true;
       });
+    }
+
+    function now() { return window.performance && performance.now ? performance.now() : 0; }
+    /** ?timing=1 のときだけ、開くときの時間を一言で出す（第6章。数字だけ） */
+    function renderTiming() {
+      if (!TIMING) return;
+      var n = document.getElementById('timing-note');
+      if (!n) {
+        n = ui.el('p', { id: 'timing-note', class: 'sub', role: 'status' });
+        var s = ui.$('stale-note');
+        s.parentNode.insertBefore(n, s);
+      }
+      var sec = function (ms) { return (Math.round(ms / 100) / 10).toFixed(1) + ' 秒'; };
+      var parts = [];
+      if (timing.stale !== null) parts.push('控え ' + sec(timing.stale));
+      if (timing.fresh !== null) parts.push('最新 ' + sec(timing.fresh) + (timing.serverMs !== null ? '（サーバーの中 ' + sec(timing.serverMs) + '）' : ''));
+      n.textContent = parts.join('・');
     }
 
     /** data（本物の答え・控え）を画面に出す。日と部署を決めてから描く。keep = 月の表の位置と選んでいるマスを保つ（同じ月の読み直し） */
@@ -136,20 +166,21 @@
     function restorePending() {
       pendingOps().forEach(function (o) {
         var t = o.tmp;
-        if (!t || data.items.indexOf(t) >= 0) return;
-        if (t.date < data.from || t.date > data.to) return; // ほかの月の分は入れない（止まったまま月を移したとき）
+        if (!t || base.items.indexOf(t) >= 0) return;
+        if (t.date < base.from || t.date > base.to) return; // ほかの月の分は入れない（止まったまま月を移したとき）
         // 結果が分からず止まった操作は、サーバーで入っていることがある。同じ担当・日・内容の本物があれば重ねない
         // （取り違えても見かけだけ。操作は止まったまま残り、「もう一度送る」で入る）
-        if (failed && failed.op === o && failed.kind === 'unknown' && data.items.some(function (i) {
+        if (failed && failed.op === o && failed.kind === 'unknown' && base.items.some(function (i) {
           return !i.pending && i.owner === t.owner && i.date === t.date && i.content === t.content && i.state === '未完了';
         })) return;
-        data.items.push(t);
+        base.items.push(t);
       });
     }
 
-    /** やめた操作の仮のタスクを外す（読み直しに失敗しても「保存中」のまま残さない） */
+    /** やめた操作の仮のタスクを外す（読み直しに失敗しても「保存中」のまま残さない）。仮のタスクは base の中のものだけを扱う（3-1） */
     function dropPending(ops) {
-      ops.forEach(function (o) { var k = o.tmp ? data.items.indexOf(o.tmp) : -1; if (k >= 0) data.items.splice(k, 1); });
+      if (!base) return;
+      ops.forEach(function (o) { var k = o.tmp ? base.items.indexOf(o.tmp) : -1; if (k >= 0) base.items.splice(k, 1); });
     }
 
     /** 月の表の中にフォーカスがあるか（表を作り直した後に戻すため） */
@@ -169,10 +200,11 @@
      */
     function saveView() {
       if (viewing()) return;
-      var ok = gotFresh && !stale && !loading && !sending && !queue.length && !failed && !sideCalls && !sideUnknown
-        && !!data && !!me && data.month === String(data.taskToday).slice(0, 7)
-        && !data.items.some(function (i) { return i.pending; }); // 「保存中」の仮のタスクは控えに書かない（念のため）
-      if (ok) MP.store.setTaskView(me.employeeId, data); else MP.store.clearTaskView();
+      // 書くのはサーバーの姿（base）。「押したらすぐ」の姿は書かない（送り残しがあるときは、そもそも書かない。3-7）
+      var ok = gotFresh && !stale && !loading && !sending && !current && !queue.length && !failed && !sideCalls && !sideUnknown
+        && !!base && !!me && base.month === String(base.taskToday).slice(0, 7)
+        && !base.items.some(function (i) { return i.pending; }); // 「保存中」の仮のタスクは控えに書かない（念のため）
+      if (ok) MP.store.setTaskView(me.employeeId, base); else MP.store.clearTaskView();
     }
 
     /** 控えとして出せる形か（今月・端末の時計の見当と同じ「タスクの今日」・一覧が配列） */
@@ -189,12 +221,13 @@
       if (!usableView(v)) return;
       stale = true;
       me = cm;
-      data = v;
+      base = v;
+      rebuildView();
       loading = true; // 描く前に立てる（描く中の sendSeen・行のボタンが loading を見る）
       try {
         adopt();
       } catch (e) { // 控えの中身が今の画面と合わない（古い版の控えなど）: 捨てて、今までどおり最新を待つ
-        stale = false; me = null; data = null; day = null; shownDay = null; deptId = null;
+        stale = false; me = null; base = null; data = null; day = null; shownDay = null; deptId = null;
         ui.$('view').hidden = true;
         MP.store.clearTaskView();
         return;
@@ -202,9 +235,50 @@
       var n = ui.$('stale-note');
       n.textContent = STALE_TEXT;
       n.hidden = false;
+      if (TIMING) { timing.stale = now(); renderTiming(); }
     }
 
-    function findItem(taskId) { return data.items.filter(function (i) { return i.taskId === taskId; })[0] || null; }
+    /** 描いている姿のタスク（押したときの判定・メニュー・帯） */
+    function findViewItem(taskId) { return data ? data.items.filter(function (i) { return i.taskId === taskId; })[0] || null : null; }
+    /** サーバーの姿のタスク（送る中身の版 baseVersion はこれだけから取る。描く姿で先に消したタスクも見つかる。3-3） */
+    function findBaseItem(taskId) { return base ? base.items.filter(function (i) { return i.taskId === taskId; })[0] || null : null; }
+    function baseVersionOf(taskId) { var cur = findBaseItem(taskId); return cur ? cur.recordVersion : 0; }
+
+    /**
+     * 描くための姿にかける操作（3-2）: 送っている最中 → 結果が分からないで止まった操作 → 列の順。
+     * 断られた・競合で止まった操作はかけない（すぐ元の姿に戻る）
+     */
+    function optOps() {
+      var list = [];
+      if (current && current.opt) list.push(current.opt);
+      if (failed && failed.kind === 'unknown' && failed.op.opt) list.push(failed.op.opt);
+      queue.forEach(function (o) { if (o.opt) list.push(o.opt); });
+      return list;
+    }
+    /**
+     * そのタスクを消す操作が、まだ届いていないか（もう消しているので、もう一度消させない）。
+     * 完了・未完了の送り待ちのタスクは、続けて消す・直すができる（送る直前に base の版で作るので順番どおりに通る。Codex 実装 1 回目 medium）
+     */
+    function pendingDelete(taskId) { return optOps().some(function (x) { return x.kind === 'delete' && x.taskId === taskId; }); }
+    /** 描くための姿を作り直す（base が変わった・列が変わった・失敗が決まったとき） */
+    function rebuildView() { data = base ? MP.taskOpt.view(base, optOps(), canOfView) : null; }
+    /**
+     * 押したらすぐ状態を変えたタスクの「できること」（サーバーの答えと同じ CalcTask.canAll。
+     * 完了の送り待ちのタスクは消せない・直せない＝サーバーで断られる操作を押させない）
+     */
+    function canOfView(it) {
+      return CT.canAll({ employeeId: me.employeeId, role: me.role }, { owner: it.owner, requester: it.requester, hidden: it.hidden, state: it.state });
+    }
+
+    /**
+     * その人・その日の並び（TV.entries と同じ答え）。描く姿 data ごとに 1 回だけ人と日ごとに分けて覚える
+     * （月の表を塗り直すとマスの数だけ呼ぶので、毎回全部のタスクをたどらない。B10）。data は rebuildView でしか変わらないので、data が替われば作り直す
+     */
+    var entCache = { data: null, get: null };
+    function entriesOf(owner, date) {
+      if (entCache.data !== data) entCache = { data: data, get: TV.entriesIndex(data) };
+      return entCache.get(owner, date);
+    }
     function shownPeople() { return TV.people(data, deptId, me.employeeId); }
 
     function render() {
@@ -294,7 +368,8 @@
         sideCalls--;
         if (!res.ok && unknownResult(res)) sideUnknown = true;
         if (!res.ok) { ui.pageMessage(res.message || '知らせを消せませんでした', 'error'); return; }
-        data.notices = data.notices.filter(function (x) { return !(x.taskId === n.taskId && x.kind === n.kind && x.stamp === n.stamp); });
+        if (base) base.notices = base.notices.filter(function (x) { return !(x.taskId === n.taskId && x.kind === n.kind && x.stamp === n.stamp); });
+        rebuildView();
         if (res.data.skipped && res.data.skipped.length) { if (!sending && !queue.length) reloadNow(); return; }
         renderNotices();
       });
@@ -341,7 +416,7 @@
       for (var n = CT.dayNumber(data.from); n <= CT.dayNumber(data.to); n++) {
         var d = CT.dateOf(n);
         var max = 0;
-        people.forEach(function (p) { max = Math.max(max, TV.entries(data, p.employeeId, d).length); });
+        people.forEach(function (p) { max = Math.max(max, entriesOf(p.employeeId, d).length); });
         for (var k = 0; k <= max; k++) out.push({ date: d, idx: k, first: k === 0, count: max });
       }
       return out;
@@ -378,7 +453,7 @@
       if (c === 0) return { kind: 'no', n: row.idx < row.count ? row.idx + 1 : 0 };
       if (c === cols.length + 1) return { kind: 'memo', date: row.date, first: row.first };
       var owner = cols[c - 1];
-      var list = TV.entries(data, owner.employeeId, row.date);
+      var list = entriesOf(owner.employeeId, row.date);
       if (row.idx < list.length) return list[row.idx];
       if (row.idx === list.length) return { kind: 'empty', owner: owner, date: row.date };
       return { kind: 'none' };
@@ -420,10 +495,25 @@
         editable: function (r, c) {
           if (viewing() || loading) return false;
           var x = cellOf(r, c);
-          if (x.kind === 'task') return !sending && !x.it.pending && x.it.can.edit;
+          // タスクのマスは、送っている間も直せる・消せる（3-8）。完了の送り待ちのタスクも（版は送る直前に base から取る）
+          if (x.kind === 'task') return !failed && !x.it.pending && x.it.can.edit;
           if (x.kind === 'empty') return !failed && x.owner.active; // 空きのマスは、前の保存を待たずに続けて打てる
           return false; // 番号・申し送り（申し送りは上の欄で書く・直す）・空きの下
         },
+        key: keyOf,
+        // マスの先頭のチェック（4-3）。タスクのマスで、一覧と同じく完了にできるときだけ
+        mark: function (r, c) {
+          var x = cellOf(r, c);
+          if (x.kind !== 'task' || !TV.canCheck(x.it, viewing())) return null;
+          var done = x.it.state === '完了';
+          return { on: done, label: (done ? '未完了に戻す: ' : '完了にする: ') + x.it.content, disabled: loading || !!failed };
+        },
+        onMark: function (r, c) {
+          var x = cellOf(r, c);
+          if (x.kind !== 'task' || !TV.canCheck(x.it, viewing()) || loading || failed) return;
+          stateOp(x.it, x.it.state === '完了' ? 'reopen' : 'complete');
+        },
+        editEnd: function () { if (rebuildAfterEdit) { rebuildAfterEdit = false; rebuildSoon(null); } },
         cellState: function (r, c) {
           var x = cellOf(r, c), row = rows[r];
           var edge = (row.first ? ' blk-top' : '') + (row.idx % 2 ? ' stripe' : '') + (c >= 1 && c <= cols.length && cols[c - 1].employeeId === me.employeeId ? ' mine' : '');
@@ -477,20 +567,45 @@
       updateTools();
     }
 
-    /** 打った・貼り付けた内容（まとめて） */
+    /**
+     * マスの対象の鍵（4-2）。タスク = 't:' + タスクID、空き = 'e:' + 担当 + '|' + 日付。ほかは座標（直せないマス）。
+     * 表の部品は、編集を始めたときの鍵で確定する（打っている間に並びが変わっても、始めたときのタスクに入る）
+     */
+    function keyOf(r, c) {
+      if (!rows[r]) return 'x:' + r + ',' + c;
+      var x = cellOf(r, c);
+      if (x.kind === 'task') return 't:' + x.it.taskId;
+      if (x.kind === 'empty') return 'e:' + x.owner.employeeId + '|' + x.date;
+      return 'x:' + r + ',' + c;
+    }
+    /** 鍵から、今の姿のマスの中身を探す（見つからなければ null。消えたタスクなど） */
+    function cellOfKey(key) {
+      if (typeof key !== 'string') return null;
+      if (key.indexOf('t:') === 0) { var it = findViewItem(key.slice(2)); return it ? { kind: 'task', it: it } : null; }
+      if (key.indexOf('e:') === 0) {
+        var k = key.indexOf('|'), id = key.slice(2, k), date = key.slice(k + 1);
+        var p = data.people.filter(function (q) { return q.employeeId === id; })[0];
+        return p ? { kind: 'empty', owner: p, date: date } : null;
+      }
+      return null;
+    }
+
+    /** 打った・貼り付けた・空にした内容（まとめて）。どのマスかは鍵で決める（座標は使わない） */
     function onGridChange(list) {
-      var adds = [], dels = [], kept = 0;
+      var adds = [], dels = [], kept = 0, gone = 0, noEdit = 0;
       list.forEach(function (ch) {
-        var x = cellOf(ch.r, ch.c);
+        var x = cellOfKey(ch.key);
         var v = String(ch.value || '').replace(/^[\s　]+|[\s　]+$/g, '');
+        if (!x) { if (String(ch.key).indexOf('t:') === 0) gone++; return; } // その間に消えたタスク（直さない）
         if (x.kind === 'empty' && v !== '') {
           adds.push({ ownerId: x.owner.employeeId, date: x.date, content: v });
         } else if (x.kind === 'task' && v === '') {
           // タスクのマスを空にした（選んで Backspace・Delete など）: 消したい。消せるタスクだけ集め、下で 1 回だけ確かめる
-          if (x.it.can.del && !x.it.pending) dels.push(x.it); else kept++;
+          if (x.it.can.del && !x.it.pending && !pendingDelete(x.it.taskId)) dels.push(x.it); else kept++;
         } else if (x.kind === 'task' && v !== '' && v !== x.it.content) {
+          if (x.it.pending || !x.it.can.edit) { noEdit++; return; } // 直せない（保存中の仮のタスクなど）。消すの「消せません」とは分ける（内部レビュー low）
           var id = x.it.taskId;
-          enqueue({ action: 'task.update', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0, content: v }; }, label: '「' + v + '」' });
+          enqueue({ action: 'task.update', args: function () { return { taskId: id, baseVersion: baseVersionOf(id), content: v }; }, label: '「' + v + '」' });
         }
       });
       if (adds.length === 1) addQuick(adds[0], { r: list[0].r, c: list[0].c });
@@ -500,6 +615,8 @@
         }
       }
       if (dels.length || kept) askDelete(dels, kept); // 足す・直すは上ですぐ送る。消すのは確かめてから
+      else if (gone) ui.pageMessage('そのタスクはもうありません（直していません）', 'warn'); // 打っている間に消えた（4-2）
+      else if (noEdit) ui.pageMessage('送っている途中のタスクは、送り終わってから直してください', 'warn');
       if (grid) grid.refresh();
     }
 
@@ -518,13 +635,18 @@
       ui.confirm('タスクを消す', text, '消す', 'danger').then(function (ok) {
         if (mode === 'table' && grid) grid.focus(); // 窓を閉じた後も、表のキー操作を続けられるように
         if (!ok || refuseLoading()) return;
-        var ids = list.map(function (i) { return i.taskId; }).filter(function (id) { return !!findItem(id); }); // 窓を出している間に無くなったものは送らない
+        // 窓を出している間に無くなった・ほかの操作の対象になったものは送らない
+        var ids = list.map(function (i) { return i.taskId; }).filter(function (id) { return !!findViewItem(id) && !pendingDelete(id); });
+        if (!ids.length) return;
         var batch = newBatch();
-        ids.forEach(function (id, k) {
-          var it = findItem(id);
-          enqueueDelete(batch, { action: 'task.delete', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0 }; },
-            label: '「' + it.content + '」', reload: k === ids.length - 1 });
+        ids.forEach(function (id) {
+          var it = findViewItem(id);
+          // 月は読み直さない（3-9）。押したらすぐ表から消す（opt）。版は送る直前に base から取る
+          enqueueDelete(batch, { action: 'task.delete', args: function () { return { taskId: id, baseVersion: baseVersionOf(id) }; },
+            label: '「' + it.content + '」', content: it.content, opt: { kind: 'delete', taskId: id } });
         });
+        showDeleteBar(batch);
+        afterPress();
       });
     }
 
@@ -539,23 +661,28 @@
         requester: '', requesterName: '', due: '', dueTime: '', note: '', consult: null, fresh: false, deferCount: 0, remindTime: '', recordVersion: 0,
         rank: 99999 + n, order: 99999 + n, // その日の最後に並ぶ
         can: { edit: false, complete: false, defer: false, cancel: false, del: false, move: false, consult: false, note: false, remind: false } };
-      data.items.push(tmp);
+      base.items.push(tmp); // 仮のタスクは base にだけ入れる（描く姿は同じものを指す。3-1）
+      rebuildView();
       enqueue({ action: 'task.add', args: function () { return Object.assign({ urgency: '通常', hidden: false }, a); }, label: '「' + a.content + '」', tmp: tmp });
       rebuildSoon(typed);
     }
 
     /**
      * 行の数が変わったので、月の表を作り直す。表の部品は「内容を渡す → その後に選んでいるマスを下へ動かす」の順なので、
-     * 渡された中ですぐ作り直すと、移動が古い表に掛かって失われる。動き終わった後（この出来事の処理の直後）に作り直す
+     * 渡された中ですぐ作り直すと、移動が古い表に掛かって失われる。動き終わった後（この出来事の処理の直後）に作り直す。
+     * 打っている最中（編集中）は作り直さず、編集が終わったときに 1 回だけ作り直す（4-2。入力の箱を壊さない）
      */
+    var rebuildQueued = false;
     function rebuildSoon(typed) {
-      var waiting = !!rebuildTyped;
-      rebuildTyped = typed;
-      if (waiting) return;
+      if (typed) rebuildTyped = typed;
+      if (rebuildQueued) return;
+      rebuildQueued = true;
       Promise.resolve().then(function () {
+        rebuildQueued = false;
         var t = rebuildTyped;
         rebuildTyped = null;
         if (mode !== 'table' || !grid || loading) return; // 読み込みの間は、読み終わったときに作り直す
+        if (grid.isEditing()) { rebuildAfterEdit = true; grid.refresh(); return; }
         var had = tableFocused();
         var y = window.scrollY;
         jumpToday = false;
@@ -581,8 +708,10 @@
       var it = e && e.kind === 'task' ? e.it : null;
       var busy = sending || loading || !!failed || viewing();
       var set = function (id, ok) { ui.$(id).disabled = busy || !ok; };
-      set('t-complete', it && it.can.complete && it.state === '未完了');
-      set('t-reopen', it && it.can.complete && it.state === '完了');
+      // 完了・未完了に戻す・消すは、送っている間も押せる（列に積む。3-8）。まだ届いていない操作の対象のタスクの「消す」は押せない
+      var quick = function (id, ok) { ui.$(id).disabled = loading || !!failed || viewing() || !ok; };
+      quick('t-complete', it && TV.canCheck(it, viewing()) && it.state === '未完了');
+      quick('t-reopen', it && TV.canCheck(it, viewing()) && it.state === '完了');
       set('t-defer', it && it.can.defer && it.state === '未完了');
       set('t-due', it && it.can.edit);
       set('t-remind', it && it.can.remind);
@@ -594,7 +723,7 @@
       set('t-consult', it && it.can.consult);
       set('t-up', it && it.can.move && !!TV.moveArgs(data, it, -1));
       set('t-down', it && it.can.move && !!TV.moveArgs(data, it, 1));
-      set('t-delete', it && it.can.del);
+      quick('t-delete', it && it.can.del && !it.pending && !pendingDelete(it.taskId));
       ui.$('t-today').disabled = loading;
       ui.$('sel-info').textContent = e ? (e.kind === 'plan' ? '選んでいる予定: ' : '選んでいるタスク: ') + TV.fullText(e, data) : '';
     }
@@ -613,7 +742,7 @@
     /** 1人の欄。自分の欄はいつも開いている（残りは全部出す）。ほかの人の欄は見出しを押すと開く */
     function card(p) {
       var mine = p.employeeId === me.employeeId;
-      var list = TV.entries(data, p.employeeId, day);
+      var list = entriesOf(p.employeeId, day);
       var n = TV.counts(list);
       var open = mine || !!openCards[p.employeeId];
       var urgent = list.filter(function (e) { return e.kind === 'task' && e.it.state === '未完了' && e.it.urgency !== '通常'; }).length;
@@ -657,9 +786,10 @@
     /** 1件の行: [番号] [□] [急ぎ 内容 … 印] [〆] 。□ は完了（押せる人だけ）、行を押すとメニュー */
     function rowOf(e) {
       var it = e.it;
-      var canCheck = e.kind === 'task' && it.can.complete && it.state !== '取りやめ' && !viewing();
+      var canCheck = e.kind === 'task' && TV.canCheck(it, viewing());
       return MP.taskItem.row(e, data, {
-        canCheck: canCheck, disabled: sending || loading,
+        // チェックは送っている間も押せる（列に積む。3-8）。本文（メニュー）は今どおり送っている間は止める
+        canCheck: canCheck, disabled: sending || loading, checkDisabled: loading || !!failed,
         onCheck: function (t, done) { stateOp(t, done ? 'reopen' : 'complete'); },
         onOpen: function (t, no) { menu(t, no); },
       });
@@ -669,7 +799,7 @@
 
     /** 行を押したときのメニュー（全文と、その人ができる操作だけ） */
     function menu(it0, no) {
-      var it = findItem(it0.taskId) || it0;
+      var it = findViewItem(it0.taskId) || it0;
       var buttons = [];
       var add = function (label, value, kind) { buttons.push({ label: label, value: value, kind: kind || '' }); };
       if (!viewing()) {
@@ -708,14 +838,35 @@
 
     function updateOp(it, fields, reload) {
       var id = it.taskId;
-      enqueue({ action: 'task.update', args: function () { var cur = findItem(id); return Object.assign({ taskId: id, baseVersion: cur ? cur.recordVersion : 0 }, fields); }, label: '「' + it.content + '」', reload: !!reload });
+      enqueue({ action: 'task.update', args: function () { return Object.assign({ taskId: id, baseVersion: baseVersionOf(id) }, fields); }, label: '「' + it.content + '」', reload: !!reload });
     }
 
+    /**
+     * 状態を変える。完了・未完了に戻すは「押したらすぐ」画面を変える（opt。3-4）。取りやめ・先送りは今どおり返事を待つ。
+     * 版は送る直前に base から取る（3-3）
+     */
     function stateOp(it, op, extra) {
       var id = it.taskId;
+      if (loading || failed) return; // 読み込みの間・止まった操作があるときは積まない（押すボタンも止めてある）
       dropUndo();
-      enqueue({ action: 'task.state', args: function () { var cur = findItem(id); return Object.assign({ taskId: id, baseVersion: cur ? cur.recordVersion : 0, op: op }, extra || {}); },
-        label: '「' + it.content + '」', reload: op === 'defer', undo: op === 'complete' });
+      var quick = op === 'complete' || op === 'reopen';
+      var o = { action: 'task.state', args: function () { return Object.assign({ taskId: id, baseVersion: baseVersionOf(id), op: op }, extra || {}); },
+        label: '「' + it.content + '」', reload: op === 'defer' };
+      if (quick) o.opt = { kind: 'state', taskId: id, to: op === 'complete' ? '完了' : '未完了' };
+      enqueue(o);
+      if (!quick) return;
+      afterPress();
+      if (op === 'complete') showUndo(it, o); // 完了の帯は押したときに出す（その操作を覚える）
+    }
+
+    /**
+     * 「押したらすぐ」の操作を積んだ後: 描く姿を作り直して描く。
+     * 月の表で行が変わる（消した）ときは、打って足すときと同じ作り直し方にする（キーの入力先を表に残し、続けて矢印・Backspace を使える）
+     */
+    function afterPress() {
+      rebuildView();
+      if (mode === 'table' && grid && !sameTable()) { rebuildSoon(null); renderQueue(); return; }
+      renderAfter();
     }
 
     function deferOp(it) {
@@ -735,7 +886,7 @@
         if (!v || (v.remindTime === (it.remindTime || '') && (v.remindEarly || '') === (it.remindEarly || ''))) return;
         var id = it.taskId;
         enqueue({ action: 'task.remind', label: '「' + it.content + '」のリマインダー',
-          args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0, remindTime: v.remindTime, remindEarly: v.remindEarly }; } });
+          args: function () { return { taskId: id, baseVersion: baseVersionOf(id), remindTime: v.remindTime, remindEarly: v.remindEarly }; } });
       });
     }
 
@@ -795,7 +946,7 @@
         hint: it.requester ? '依頼した人への知らせに出ます。空にすると消えます。' : '空にすると消えます。' }).then(function (v) {
         if (v === null || v === (it.note || '')) return;
         var id = it.taskId;
-        enqueue({ action: 'task.note', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0, note: v }; }, label: '「' + it.content + '」の一言' });
+        enqueue({ action: 'task.note', args: function () { return { taskId: id, baseVersion: baseVersionOf(id), note: v }; }, label: '「' + it.content + '」の一言' });
       });
     }
 
@@ -804,24 +955,33 @@
         hint: it.requesterName + 'さんのタスクリストに知らせが出ます。空にすると相談を取り消します。' }).then(function (v) {
         if (v === null || v === (it.consult ? it.consult.text : '')) return;
         var id = it.taskId;
-        enqueue({ action: 'task.request.consult', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0, text: v }; }, label: '「' + it.content + '」の相談' });
+        enqueue({ action: 'task.request.consult', args: function () { return { taskId: id, baseVersion: baseVersionOf(id), text: v }; }, label: '「' + it.content + '」の相談' });
       });
     }
 
     function deleteOp(it) {
       return ui.confirm('タスクを消す', '「' + it.content + '」を消しますか？', '消す', 'danger').then(function (ok) {
-        if (!ok || refuseLoading()) return;
+        if (!ok || refuseLoading() || failed) return;
         var id = it.taskId;
-        enqueueDelete(newBatch(), { action: 'task.delete', args: function () { var cur = findItem(id); return { taskId: id, baseVersion: cur ? cur.recordVersion : 0 }; }, label: '「' + it.content + '」', reload: true });
+        if (!findViewItem(id) || pendingDelete(id)) return; // 窓を出している間に無くなった・もう消している
+        // 月は読み直さない。押したらすぐ消す（3-9）
+        var batch = newBatch();
+        enqueueDelete(batch, { action: 'task.delete', args: function () { return { taskId: id, baseVersion: baseVersionOf(id) }; },
+          label: '「' + it.content + '」', content: it.content, opt: { kind: 'delete', taskId: id } });
+        showDeleteBar(batch);
+        afterPress();
       });
     }
 
-    /** 並べ替え（送る直前に、今の姿から並びと版を作る。同じ群の中でだけ。競合したら読み直して並べ直してもらう。Codex 実装1回目 medium） */
+    /**
+     * 並べ替え（送る直前に、サーバーの姿 base から並びと版を作る。同じ群の中でだけ。競合したら読み直して並べ直してもらう。Codex 実装1回目 medium）。
+     * 送る直前には前の操作がすべて届いているので、base が今のサーバーの姿（3-3）
+     */
     function moveOp(it, dir) {
       var id = it.taskId;
       enqueue({ action: 'task.move', label: '並べ替え', reload: true, noRetry: true, args: function () {
-        var cur = findItem(id);
-        return cur ? TV.moveArgs(data, cur, dir) : null; // 動かせない（端・群の境目・もう無い）→ 送らない
+        var cur = findBaseItem(id);
+        return cur ? TV.moveArgs(base, cur, dir) : null; // 動かせない（端・群の境目・もう無い）→ 送らない
       } });
     }
 
@@ -861,13 +1021,24 @@
       latestBatch = null;
     }
 
-    function showUndo(it) {
+    /** 完了の帯（押したときに出す。その完了の操作 op を覚える。3-4 の 4.） */
+    function showUndo(it, op) {
       dropUndo();
       if (viewing()) return;
       ui.$('undo-text').textContent = '「' + it.content + '」を完了にしました';
       ui.$('undo-note').hidden = false;
       ui.$('undo-bar').hidden = false;
-      undo = { kind: 'complete', taskId: it.taskId, timer: window.setTimeout(hideUndo, UNDO_MS) };
+      undo = { kind: 'complete', taskId: it.taskId, op: op, timer: window.setTimeout(hideUndo, UNDO_MS) };
+    }
+
+    /** 消す帯（確かめの窓で「消す」を押したときに出す。文とボタンは renderUndo が束の様子から決める。3-9） */
+    function showDeleteBar(batch) {
+      if (viewing() || batch !== latestBatch) return;
+      hideUndo();
+      undo = { kind: 'delete', batch: batch, timer: null };
+      ui.$('undo-note').hidden = true;
+      ui.$('undo-bar').hidden = false;
+      renderUndo();
     }
 
     /** 確かめの窓で「消す」を押した回ごとの束（前の帯は、ここで替わる） */
@@ -889,31 +1060,28 @@
      * 帯の時計はここでは始めない（その回の消すと月の読み直しがすべて終わった後に renderUndo が始める）
      */
     function noteDeleted(op, item) {
-      var batch = op.delBatch;
-      batch.done.push({ taskId: item.taskId, baseVersion: item.recordVersion, deleteRequestId: op.rid, content: item.content });
-      if (batch !== latestBatch || viewing()) return; // 帯がもう新しい操作のものに替わった
-      if (!undo || undo.batch !== batch) {
-        hideUndo();
-        undo = { kind: 'delete', batch: batch, timer: null };
-      }
-      ui.$('undo-text').textContent = batch.done.length === 1 ? '「' + batch.done[0].content + '」を消しました' : batch.done.length + ' 件を消しました';
-      ui.$('undo-note').hidden = true;
-      ui.$('undo-bar').hidden = false;
-      // ここで renderUndo を呼ばない（最後の 1 件の後は、この直後に月の読み直しが始まる。時計は読み直しの後の renderQueue で始める）
+      op.delBatch.done.push({ taskId: item.taskId, baseVersion: item.recordVersion, deleteRequestId: op.rid, content: item.content });
+      // 帯の文・ボタン・時計は renderUndo（この後の renderQueue）が決める
     }
 
     /**
-     * 消した帯のボタンと時計。送れなかった窓が出ている間・戻している間は押せない。
-     * 時計は、その回の消すがどれも列に残っていない（成功した か 捨てた）・読み込み中でないときに始める（止まっている間は始めない）
+     * 消した帯の文・ボタン・時計（3-9）。束の操作は「送り待ち（送っている最中・列・結果が分からないで止まった）」「成功（done）」
+     * 「断られた（止まった帯が出ている間）」「捨てた（列から外れた）」のどれか。
+     *   送り待ちがある間は「消しています…」で押せない。送り待ちが無くなったら、成功した分だけ戻せる（時計をここで始める）。成功が 0 件なら帯を消す
      */
     function renderUndo() {
       if (!undo || undo.kind !== 'delete') return;
       var b = undo.batch, pend = pendingOps();
+      var refusedHere = !!failed && failed.kind !== 'unknown' && b.ops.indexOf(failed.op) >= 0;
+      var waiting = b.ops.filter(function (o) { return pend.indexOf(o) >= 0 && !(refusedHere && failed.op === o); });
       var restoring = pend.some(function (o) { return o.restore === b; });
+      if (!waiting.length && !refusedHere && !restoring && !b.done.length) { dropUndo(); return; } // 1 件も消せなかった
+      var names = b.done.map(function (e) { return e.content; }).concat(waiting.map(function (o) { return o.content; }));
+      ui.$('undo-text').textContent = names.length === 1 ? '「' + names[0] + '」を消しました' : names.length + ' 件を消しました';
       var btn = ui.$('undo-btn');
-      btn.disabled = !!failed || restoring;
-      btn.textContent = restoring ? '元に戻しています…' : '元に戻す';
-      if (!undo.timer && !loading && !sending && !b.ops.some(function (o) { return pend.indexOf(o) >= 0; })) {
+      btn.disabled = !!failed || restoring || waiting.length > 0 || !b.done.length;
+      btn.textContent = restoring ? '元に戻しています…' : waiting.length ? '消しています…' : '元に戻す';
+      if (!undo.timer && !loading && !sending && !waiting.length && !refusedHere && !restoring) {
         undo.timer = window.setTimeout(function () { if (undo && undo.batch === b) dropUndo(); }, UNDO_DELETE_MS);
       }
     }
@@ -956,13 +1124,15 @@
     ui.$('undo-btn').addEventListener('click', function () {
       if (undo && undo.kind === 'delete') { restoreBatch(undo.batch); return; }
       if (!undo || loading) return;
-      var it = findItem(undo.taskId);
+      var op = undo.op, it = findViewItem(undo.taskId);
       hideUndo();
+      // その完了がまだ列にある（送っていない）: 列から外すだけ（送らない）。送っている最中・送った後なら、未完了に戻すを積む（3-4 の 4.）
+      if (op && queue.indexOf(op) >= 0) { queue = queue.filter(function (x) { return x !== op; }); afterPress(); return; }
       if (it && it.state === '完了') stateOp(it, 'reopen');
     });
     ui.$('undo-note').addEventListener('click', function () {
       if (!undo || undo.kind !== 'complete' || loading) return;
-      var it = findItem(undo.taskId);
+      var it = findViewItem(undo.taskId);
       hideUndo();
       if (it && it.state === '完了') noteOp(it);
     });
@@ -997,25 +1167,56 @@
         var op = failed.op;
         f.appendChild(ui.el('p', { text: op.label + ' を送れませんでした: ' + failed.message }));
         var btns = [];
+        // 捨てる: 止まった操作と列の残り（仮のタスクも外す・完了の帯がその操作なら消す。消す束は renderUndo が「捨てた」と見る）
+        var dropAll = function () { var all = [op].concat(queue); dropPending(all); dropUndoOf(all); queue = []; failed = null; };
         if (failed.kind === 'unknown') {
+          // 同じ requestId・同じ中身（op.sent）で送り直す（二重にしない）
           btns.push(button('もう一度送る', function () { failed = null; queue.unshift(op); pump(); }));
-          btns.push(button('やめて最新を読む', function () { failed = null; dropPending([op].concat(queue)); queue = []; reloadNow(); }));
+          btns.push(button('やめて最新を読む', function () { recover(dropAll); }));
         } else if (failed.kind === 'conflict') {
-          btns.push(button('最新を読む（自分の入力は捨てる）', function () { failed = null; dropPending([op].concat(queue)); queue = []; reloadNow(); }));
-          if (!op.noRetry) btns.push(button('自分の入力をもう一度送る', function () { failed = null; reloadNow().then(function () { op.rid = MP.api.newRequestId(); op.sent = null; queue.unshift(op); pump(); }); }));
+          btns.push(button('最新を読む（自分の入力は捨てる）', function () { recover(dropAll); }));
+          // 読み直した版で中身を作り直し、新しい requestId で送る（読めたときだけ）
+          if (!op.noRetry) btns.push(button('自分の入力をもう一度送る', function () { recover(function () { failed = null; op.rid = MP.api.newRequestId(); op.sent = null; queue.unshift(op); }, pump); }));
         } else {
           // 断られた操作は捨てる（仮のタスクも消える）。列に残りがあれば、読み直した後に続きを送る
-          btns.push(button('閉じる', function () { failed = null; dropPending([op]); reloadNow().then(pump); }));
+          btns.push(button('閉じる', function () { recover(function () { dropPending([op]); dropUndoOf([op]); failed = null; }, pump); }));
         }
         f.appendChild(ui.el('div', { class: 'item-actions' }, btns));
         if (f.scrollIntoView) f.scrollIntoView({ block: 'nearest' });
       }
       if (mode === 'table' && grid) updateTools(); // 送っている間・止まっている間は、操作のボタンを止める
-      Array.prototype.forEach.call(document.querySelectorAll('#day-list button.tk-check, #day-list button.tk-main, #notices button'), function (b) { b.disabled = sending || loading || !!failed; });
+      Array.prototype.forEach.call(document.querySelectorAll('#day-list button.tk-main, #notices button'), function (b) { b.disabled = sending || loading || !!failed; });
+      Array.prototype.forEach.call(document.querySelectorAll('#day-list button.tk-check'), function (b) { b.disabled = loading || !!failed; }); // チェックは送っている間も押せる（3-8）
       renderUndo();
     }
 
     function reloadNow() { return ui.run(function () { return load(false); }); }
+
+    var RELOAD_FAILED_TEXT = '最新を読めませんでした。電波の良いところで、もう一度押してください';
+    /**
+     * 止まった操作の帯のボタン（3-7）: 最新を読み、読めたときだけ before（整理: 捨てる・送り直す）→ 描く → after（続きを送る）。
+     * 読めなければ base も姿も変えず、止まった帯を残して一言だけ変える（送り直さない・ほかの操作もさせない）
+     */
+    function recover(before, after) {
+      if (loading) return;
+      ui.run(function () { return load(false, before); }).then(function (ok) {
+        if (ok) { if (after) after(); return; }
+        if (failed) { failed.message = RELOAD_FAILED_TEXT; renderQueue(); }
+      });
+    }
+
+    /** 捨てた操作の中に、完了の帯が覚えている操作があれば帯を消す */
+    function dropUndoOf(ops) {
+      if (undo && undo.kind === 'complete' && undo.op && ops.indexOf(undo.op) >= 0) hideUndo();
+    }
+
+    /** 消すが成功した: サーバーの姿からも、そのタスクと先送りの印・知らせを外す（3-5。外さないと印が戻ってくる） */
+    function dropFromBase(taskId) {
+      var not = function (x) { return x.taskId !== taskId; };
+      base.items = base.items.filter(not);
+      base.marks = (base.marks || []).filter(not);
+      base.notices = (base.notices || []).filter(not);
+    }
 
     function pump() {
       if (sending || failed || loading || !queue.length) { renderQueue(); return; } // 読み込みの間は送らない（読み終わった後に pump が呼ばれる）
@@ -1027,7 +1228,8 @@
       renderQueue();
       if (grid) grid.refresh();
       var attempt = function (tries) {
-        return MP.api.call(op.action, op.sent, { requestId: op.rid }).then(function (res) {
+        // FORBIDDEN はホームへ移らずに返してもらい、その場で元の姿に戻して理由を出す（3-6）
+        return MP.api.call(op.action, op.sent, { requestId: op.rid, keep: ['FORBIDDEN'] }).then(function (res) {
           // 通信の結果が分からない（NETWORK・BUSY）ときは、同じ中身・同じ requestId で送り直す（3回まで）
           if (!res.ok && (res.code === 'NETWORK' || res.code === 'BUSY') && tries < 3) return attempt(tries + 1);
           return res;
@@ -1041,32 +1243,45 @@
         if (!res.ok) {
           var unknown = res.code === 'NETWORK' || res.code === 'BUSY' || res.code === 'INTERNAL';
           failed = { op: op, kind: unknown ? 'unknown' : res.code === 'CONFLICT' ? 'conflict' : 'refused', message: res.message || '送れませんでした' };
-          renderQueue();
-          if (grid) grid.refresh();
+          // 断られた・競合: その操作を描く姿にかけない＝すぐ元の姿に戻る。完了の帯がその操作なら消す（3-6）
+          if (!unknown) dropUndoOf([op]);
+          rebuildView();
+          renderAfter();
           return;
         }
         applyResult(op, res.data);
+        // 描く姿もすぐ作り直す。まだ届いていない操作もかけ直す（続けて押した「完了 → 未完了」がチラつかない。3-5）。
+        // この後の月の読み直しが失敗しても、保存できた分は画面に出る（内部レビュー medium）
+        rebuildView();
         if (op.delBatch && res.data.item) noteDeleted(op, res.data.item);
         if (MP.remind) MP.remind.touch(); // 操作の後、少し待ってからリマインダーの一覧を読み直す（v3 計画 3-4）
-        // 足す（ダイアログ・スマホの一覧・まとめて）・先送り・隠す・消す・並べ替え・申し送りは、印や並び・番号が変わるので読み直す
+        // 足す（ダイアログ・スマホの一覧・まとめて）・先送り・隠す・並べ替え・申し送り・元に戻すは、印や並び・番号が変わるので読み直す（消すは読み直さない。3-9）
         if (op.reload) return load(false).then(function () { pump(); });
         renderAfter();
-        if (op.undo && res.data.item && res.data.item.state === '完了') showUndo(res.data.item);
         pump();
       }, function () {
         sending = false;
         current = null;
         failed = { op: op, kind: 'unknown', message: '送れたか分かりません' };
+        rebuildView();
         renderQueue();
       });
     }
 
     /**
      * 答えを手元に入れた後に描く。月の表で行と列が変わらなければ、作り直さずに塗り直すだけにする
-     * （次のマスを打っている最中でも、入力の箱を壊さない。表の部品は編集中のマスを塗らない）
+     * （次のマスを打っている最中でも、入力の箱を壊さない。表の部品は編集中のマスを塗らない）。
+     * 行が変わるときも、打っている最中は作り直さず、編集が終わってから作り直す（4-2）
      */
     function renderAfter() {
       jumpToday = false;
+      if (mode === 'table' && grid && !sameTable() && grid.isEditing()) {
+        rebuildAfterEdit = true;
+        grid.refresh();
+        renderSide();
+        renderQueue();
+        return;
+      }
       if (mode !== 'table' || !grid || !sameTable()) { render(); return; }
       grid.refresh();
       renderSide();
@@ -1081,18 +1296,20 @@
      * 急ぎ・締め切り・状態が変わって群が移ったときの群の中の順は、次に読み直すまで手元の順位のまま
      */
     function applyResult(op, d) {
+      // 答えはサーバーの姿 base に入れる（描く姿は、この後の rebuildView で作り直す。3-5）
       var set = function (it, tmp) {
         if (!it) return;
-        var k = data.items.map(function (i) { return i.taskId; }).indexOf(it.taskId);
-        if (k < 0 && tmp) k = data.items.indexOf(tmp);
-        it.rank = k >= 0 ? data.items[k].rank : 99999;
+        var k = base.items.map(function (i) { return i.taskId; }).indexOf(it.taskId);
+        if (k < 0 && tmp) k = base.items.indexOf(tmp);
+        it.rank = k >= 0 ? base.items[k].rank : 99999;
         it.order = it.rank;
-        if (k >= 0) data.items[k] = it; else data.items.push(it);
+        if (k >= 0) base.items[k] = it; else base.items.push(it);
       };
-      if (d.item && d.item.taskId) set(d.item, op.tmp);
+      if (op.opt && op.opt.kind === 'delete') dropFromBase(op.opt.taskId); // 消した: 答えの item（消した後の版）は戻すのに覚えるだけ（noteDeleted）
+      else if (d.item && d.item.taskId) set(d.item, op.tmp);
       // 仮のタスクは、本物を入れた後に必ず外す（読み直しで本物と仮のタスクが並んでいたときも、「保存中」を残さない）
-      var left = op.tmp ? data.items.indexOf(op.tmp) : -1;
-      if (left >= 0) data.items.splice(left, 1);
+      var left = op.tmp ? base.items.indexOf(op.tmp) : -1;
+      if (left >= 0) base.items.splice(left, 1);
       if (d.results) d.results.forEach(function (x) { set(x.item); });
       if (d.results && op.restoreTally) {
         tallyRestore(op, d); // 消したタスクを元に戻した（計画 3-2 の 4.）
@@ -1204,6 +1421,14 @@
     textMode = got(TEXT_KEY) === 'wrap' ? 'wrap' : 'clip';
     // 画面を離れるとき: 今の内容を控えに（送っている途中などは、書かずに消す）
     window.addEventListener('pagehide', saveView);
+    // 送り残し（送っている最中・列・止まった操作）があるまま離れようとしたら止める（第5章）。
+    // ログインが切れたなど、共通の処理が画面を移すときは止めない（送り残しはもう送れない）
+    var apiLeaving = false;
+    MP.api.onLeave(function () { apiLeaving = true; });
+    window.addEventListener('beforeunload', function (ev) {
+      if (apiLeaving || viewing()) return;
+      if (current || queue.length || failed) { ev.preventDefault(); ev.returnValue = ''; }
+    });
     // 「戻る」で前のページがそのまま戻ったとき: 古いまま操作させず、最新を読み直す
     // 開いたときと違うログイン（ログアウトした・別の人がログインした）なら、入口からやり直す（前の人の名前のまま、次の人の内容を読まない。セキュリティの確認 Low）
     var openedAs = MP.store.tokenMark();

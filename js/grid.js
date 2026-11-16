@@ -11,7 +11,12 @@
  *     cellState(r, c) → { cls, title }    … 誤りなどの見た目（色だけにせず、title と状態の列で文字でも出す）
  *     change(list)                         … [{ r, c, value }] をまとめて入れる（呼んだ側がそろえて、g.refresh() する）
  *     notify(text, kind)                   … 貼り付けで飛ばした数などの知らせ
+ *     key(r, c) → 文字                    … （無くてよい）マスの対象の鍵。change の各マスに key として付ける。編集は始めたときの鍵で確定する
+ *     mark(r, c) → null | { on, label, disabled } … （無くてよい）マスの先頭に出す小さなボタン（✓）。押すと onMark(r, c)。Ctrl+Enter でも
+ *     editEnd()                            … （無くてよい）編集が終わった（確定・取り消し）後に呼ぶ
  *   });
+ *   change の各マスは { r, c, key, value }（key は o.key があるときだけ）。編集の確定の「変わったか」は、始めたときの中身と比べる
+ *   （計画 docs/plans/stage2-task-speed-plan.md 4-1・4-2）
  *   g.refresh() / g.selection() → { r1, c1, r2, c2 } / g.selectedRows() → [r…] / g.focus() / g.setLocked(真偽)
  *
  * 操作: クリック・Shift+クリック、矢印・Tab・Enter、打って置き換え・F2・ダブルクリック・Esc、Delete、
@@ -26,7 +31,7 @@
     var GC = MP.gridCore;
     var cols = o.columns;
     var sel = { r1: 0, c1: 0, r2: 0, c2: 0 };   // r1・c1 が起点（Shift で広げる元）、r2・c2 が今のセル
-    var editing = null;                          // { r, c, input }
+    var editing = null;                          // { r, c, input, key, before }（key・before は始めたときの対象の鍵と中身）
     var locked = false;
     var drag = null;                             // 下へ広げるドラッグ { to }
     var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
@@ -81,7 +86,14 @@
       if (editing && editing.r === r && editing.c === c) return;
       var v = o.display ? o.display(r, c) : o.value(r, c);
       var st = o.cellState ? o.cellState(r, c) || {} : {};
+      var mk = o.mark ? o.mark(r, c) : null;
       td.textContent = v === null || v === undefined ? '' : String(v);
+      if (mk) {
+        // マスの先頭のチェック（✓）。押すのは表の mousedown の前で分ける（下の「出来事」）
+        var b = ui.el('button', { type: 'button', class: 'grid-mark' + (mk.on ? ' on' : ''), 'aria-label': mk.label, 'aria-pressed': mk.on ? 'true' : 'false',
+          tabindex: '-1', disabled: !!mk.disabled || locked, 'data-r': String(r), 'data-c': String(c) }, [ui.el('span', { class: 'grid-mark-box', text: mk.on ? '✓' : '' })]);
+        td.insertBefore(b, td.firstChild);
+      }
       td.className = 'grid-cell grid-col-' + cols[c].kind + (st.cls ? ' ' + st.cls : '') + (canEdit(r, c) ? '' : ' readonly') +
         (inSel(r, c) ? ' in-sel' : '') + (r === sel.r2 && c === sel.c2 ? ' cur' : '');
       if (st.title) td.title = st.title; else td.removeAttribute('title');
@@ -149,7 +161,7 @@
       }
       input.addEventListener('keydown', onEditKey);
       input.addEventListener('blur', function () { if (editing && editing.input === input) commit(0, 0, true); });
-      editing = { r: r, c: c, input: input };
+      editing = { r: r, c: c, input: input, key: o.key ? o.key(r, c) : undefined, before: o.value(r, c) };
       if (handle.parentNode) handle.parentNode.removeChild(handle);
       ui.clear(td).appendChild(input);
       input.focus();
@@ -161,12 +173,14 @@
       var e = editing;
       editing = null;
       var value = e.input.value;
-      if (value !== o.value(e.r, e.c)) o.change([{ r: e.r, c: e.c, value: value }]);
+      // 変わったかは、始めたときの中身と比べる（編集の間にその座標へ別のタスクが移ってきても、変更を捨てない）
+      if (value !== e.before) o.change([withKey({ r: e.r, c: e.c, value: value }, e.key)]);
       paintCell(e.r, e.c);
       if (!fromBlur) {
         sink.focus({ preventScroll: true });
         if (dr || dc) move(dr, dc, false); else refresh();
       } else refresh();
+      if (o.editEnd) o.editEnd();
     }
 
     function cancel() {
@@ -176,6 +190,14 @@
       paintCell(e.r, e.c);
       sink.focus({ preventScroll: true });
       refresh();
+      if (o.editEnd) o.editEnd();
+    }
+
+    /** change に渡すマスに鍵を付ける（key を渡したとき。o.key が無い表では付けない） */
+    function withKey(cell, key) {
+      if (key !== undefined) cell.key = key;
+      else if (o.key) cell.key = o.key(cell.r, cell.c);
+      return cell;
     }
 
     function onEditKey(ev) {
@@ -193,7 +215,7 @@
         if (list.skipped && o.notify) o.notify('直せるセルがありません（' + list.skipped + ' 個は直せないセルです）', 'warn');
         return;
       }
-      o.change(list.cells);
+      o.change(list.cells.map(function (x) { return withKey({ r: x.r, c: x.c, value: x.value }); })); // 貼り付け・写す・空にするも、鍵を付けて渡す
       refresh();
       var notes = [];
       if (list.skipped) notes.push('直せないセル ' + list.skipped + ' 個は飛ばしました');
@@ -225,6 +247,7 @@
       else if (k === 'ArrowLeft') { ev.preventDefault(); move(0, -1, ev.shiftKey); }
       else if (k === 'ArrowRight') { ev.preventDefault(); move(0, 1, ev.shiftKey); }
       else if (k === 'Tab') { ev.preventDefault(); move(0, ev.shiftKey ? -1 : 1, false); }
+      else if (k === 'Enter' && ctrl && o.mark) { ev.preventDefault(); pressMark(sel.r2, sel.c2); } // 選んでいるマスのチェック（チェックのある表だけ。日報の表は今どおり下へ動く。Codex 実装 1 回目 low）
       else if (k === 'Enter') { ev.preventDefault(); move(ev.shiftKey ? -1 : 1, 0, false); }
       else if (k === 'F2') { ev.preventDefault(); startEdit(); }
       else if (k === 'Delete' || k === 'Backspace') { ev.preventDefault(); clearSel(); }
@@ -274,8 +297,41 @@
       return td && table.contains(td) ? { r: Number(td.getAttribute('data-r')), c: Number(td.getAttribute('data-c')) } : null;
     }
 
+    /** マスの先頭のチェックを押した（ボタン・Ctrl+Enter）。読み込み中・押せないとき・チェックの無いマスでは何もしない */
+    function pressMark(r, c) {
+      if (!o.mark || !o.onMark || locked || editing) return;
+      var mk = o.mark(r, c);
+      if (!mk || mk.disabled) return;
+      o.onMark(r, c);
+    }
+    function markOf(target) {
+      var b = target && target.closest ? target.closest('button.grid-mark') : null;
+      return b && table.contains(b) ? b : null;
+    }
+
+    // チェックのボタンは、選ぶ・ドラッグ・編集の流れに入れない（mousedown で描き直すと、押している途中のボタンが置き換わり click が届かない）
+    function stopForMark(ev) {
+      if (!markOf(ev.target)) return false;
+      ev.preventDefault(); // フォーカスを入力の欄（sink）に置いたまま
+      ev.stopPropagation();
+      return true;
+    }
+    table.addEventListener('pointerdown', stopForMark);
+    table.addEventListener('touchstart', function (ev) { if (markOf(ev.target)) ev.stopPropagation(); }, { passive: true });
+    table.addEventListener('click', function (ev) {
+      var b = markOf(ev.target);
+      if (!b) return;
+      ev.preventDefault();
+      var r = Number(b.getAttribute('data-r')), c = Number(b.getAttribute('data-c'));
+      if (editing) commit(0, 0, true);
+      select(r, c, false);
+      sink.focus({ preventScroll: true });
+      pressMark(r, c);
+    });
+
     table.addEventListener('mousedown', function (ev) {
       if (ev.target === handle) return;
+      if (stopForMark(ev)) return;
       var p = cellOf(ev.target);
       if (!p || (editing && editing.r === p.r && editing.c === p.c)) return;
       if (editing) commit(0, 0, true);
@@ -286,6 +342,7 @@
       if (coarse && again && !locked) startEdit();
     });
     table.addEventListener('dblclick', function (ev) {
+      if (markOf(ev.target)) return; // チェックを続けて押しても、編集を始めない
       var p = cellOf(ev.target);
       if (p && !editing) { select(p.r, p.c, false); startEdit(); }
     });

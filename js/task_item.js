@@ -50,7 +50,7 @@
     }
     var done = it.state === '完了', cancelled = it.state === '取りやめ';
     var box = o.canCheck
-      ? ui.el('button', { type: 'button', class: 'tk-check' + (done ? ' on' : ''), 'aria-label': (done ? '未完了に戻す: ' : '完了にする: ') + it.content, disabled: o.disabled,
+      ? ui.el('button', { type: 'button', class: 'tk-check' + (done ? ' on' : ''), 'aria-label': (done ? '未完了に戻す: ' : '完了にする: ') + it.content, disabled: o.checkDisabled !== undefined ? o.checkDisabled : o.disabled, // チェックは送っている間も押せる（計画 stage2-task-speed-plan.md 3-8）
         on: { click: function () { o.onCheck(it, done); } } }, [ui.el('span', { class: 'tk-box', text: done ? '✓' : '' })])
       : ui.el('span', { class: 'tk-box-ro', text: done ? '✓' : cancelled ? '—' : '・' });
     var u = CT.urgencyMark(it.urgency);

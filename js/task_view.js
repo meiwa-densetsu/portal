@@ -15,6 +15,8 @@
  *   MP.taskView.handovers(data, deptId, date)… その日・その部署に出す申し送り（新しい申し送り → 前のメモ）
  *   MP.taskView.summary(data, deptId, date)  … 部署のまとめ [{ employeeId, name, open, over, deferred }]
  *   MP.taskView.moveArgs(data, it, dir)      … 上へ・下へで送る中身（同じ群の中でだけ。動かせなければ null）
+ *   MP.taskView.canCheck(it, viewing)        … 完了のチェックを押せるか（一覧と月の表で同じ）
+ *   MP.taskView.entriesIndex(data)           … entries を何度も呼ぶとき用（人と日ごとに 1 回だけ分けて覚える。同じ答え）
  */
 (function (root) {
   'use strict';
@@ -27,14 +29,37 @@
   function md(d) { return Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)); }
 
   function entries(data, owner, date) {
-    var tasks = ct().sortDay(data.items.filter(function (i) { return i.owner === owner && i.date === date; }));
+    var mine = function (x) { return x.owner === owner && x.date === date; };
+    return build(data.items.filter(mine), (data.plans || []).filter(mine), data.marks.filter(mine));
+  }
+
+  /** その人・その日の並びを作る（entries と entriesIndex の正本） */
+  function build(items, plans, marks) {
+    var tasks = ct().sortDay(items);
     var list = tasks.map(function (i, k) { return { kind: 'task', it: i, no: k + 1 }; });
     // 定型タスクの予定（計画 stage2-task-plan-ahead-plan.md 3-1）。サーバーが並べた順のまま。古いサーバー・古い控えには無い
-    (data.plans || []).filter(function (p) { return p.owner === owner && p.date === date; })
-      .forEach(function (p) { list.push({ kind: 'plan', it: p, no: 0 }); });
-    data.marks.filter(function (m) { return m.owner === owner && m.date === date; })
-      .forEach(function (m) { list.push({ kind: 'mark', it: m, no: 0 }); });
+    plans.forEach(function (p) { list.push({ kind: 'plan', it: p, no: 0 }); });
+    marks.forEach(function (m) { list.push({ kind: 'mark', it: m, no: 0 }); });
     return list;
+  }
+
+  /**
+   * entries を何度も呼ぶとき用（月の表を塗り直すと、マスの数だけ呼ぶ。計画 stage2-task-speed-plan.md 第7章 B10）。
+   * data を 1 回だけ人と日ごとに分け、並びは初めて聞かれたときに作って覚える。返す関数は entries(data, owner, date) と同じ答え。
+   * data が変わったら作り直すこと（返した並びの配列を書き換えない）
+   */
+  function entriesIndex(data) {
+    var group = function (list) {
+      var m = {};
+      (list || []).forEach(function (x) { var k = x.owner + '|' + x.date; (m[k] = m[k] || []).push(x); });
+      return m;
+    };
+    var I = group(data.items), P = group(data.plans), M = group(data.marks), memo = {};
+    return function (owner, date) {
+      var k = owner + '|' + date;
+      if (!memo[k]) memo[k] = build(I[k] || [], P[k] || [], M[k] || []);
+      return memo[k];
+    };
   }
 
   function counts(list) {
@@ -170,8 +195,16 @@
     return { ownerId: it.owner, date: it.date, order: order, versions: versions };
   }
 
+  /**
+   * 完了のチェック（□）を押せるか。一覧と月の表で同じ答え（計画 stage2-task-speed-plan.md 4-3）。
+   * 完了にできる人のタスクで、取りやめでなく、保存中の仮のタスクでなく、社員の画面を見ている（なりすまし）間でないとき
+   */
+  function canCheck(it, viewing) {
+    return !!it && !!it.can && it.can.complete === true && it.state !== '取りやめ' && !it.pending && !viewing;
+  }
+
   var api = { ALL: ALL, PLAN_MARK: PLAN_MARK, PENDING_MARK: PENDING_MARK, planText: planText, planCount: planCount, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
-    people: people, handovers: handovers, summary: summary, moveArgs: moveArgs, remindMark: remindMark, remindText: remindText, earlyText: earlyText, remindClock: remindClock };
+    people: people, handovers: handovers, summary: summary, moveArgs: moveArgs, remindMark: remindMark, remindText: remindText, earlyText: earlyText, remindClock: remindClock, canCheck: canCheck, entriesIndex: entriesIndex };
   if (root) { root.MP = root.MP || {}; root.MP.taskView = api; }
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : null);

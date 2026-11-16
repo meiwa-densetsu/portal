@@ -412,6 +412,13 @@ button.person-head { cursor: pointer; }
 .tk-box { width: 24px; height: 24px; border: 2px solid var(--c-line-strong); border-radius: 4px; background: var(--c-surface); display: flex; align-items: center; justify-content: center; font-weight: 700; line-height: 1; }
 .tk-check.on .tk-box { border-color: var(--c-danger); color: var(--c-danger); }
 .tk-box-ro { text-align: center; color: var(--c-sub); }
+/* 月の表のマスの先頭のチェック（計画 stage2-task-speed-plan.md 4-1）。押せる所はマスの高さいっぱい */
+/* 押すものは高さ 44px 以上（CLAUDE.md の決まり）。そのため、タスクの月の表は行の高さを 44px にそろえる（下の .task-grid） */
+.grid-mark { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; width: 28px; height: var(--tap); margin: 0 var(--sp-1) 0 calc(-1 * var(--sp-1)); padding: 0; border: 0; background: transparent; cursor: pointer; }
+.grid-mark:disabled { opacity: 0.6; cursor: default; }
+.grid-mark-box { width: 18px; height: 18px; border: 2px solid var(--c-line-strong); border-radius: 3px; background: var(--c-surface); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; line-height: 1; }
+.grid-mark.on .grid-mark-box { border-color: var(--c-danger); color: var(--c-danger); }
+@media (pointer: coarse) { .grid-mark { width: 36px; } }
 .tk-main, .tk-main-ro { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; width: 100%; min-height: var(--tap); margin: 0; padding: var(--sp-1) var(--sp-3) var(--sp-1) 0;
   border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
 .tk-main { cursor: pointer; }
@@ -443,6 +450,8 @@ button.person-head { cursor: pointer; }
 .due.due-over { background: var(--c-over); border-color: var(--c-over); color: var(--c-over-text); font-weight: 700; }
 
 /* 月の表: 日付の段の間は太い線、段の中は 1 行おきに薄い色。番号の列は細く。締め切りを過ぎたマスは文字で「〆過ぎ」＋太字 */
+/* マスの先頭のチェック（44px）を入れても、どの行も同じ高さ（日の段の 1 行目の太い上の線 2px と下の線 1px の分も足す） */
+.task-grid table.report-grid td, .task-grid table.report-grid th { height: calc(var(--tap) + 4px); }
 .task-grid table.report-grid td.blk-top, .task-grid table.report-grid th.blk-top { border-top: 2px solid var(--c-line-strong); }
 .task-grid .grid-cell.stripe:not(.in-sel) { background: var(--c-stripe); }
 .task-grid .grid-cell.mine:not(.in-sel):not(.stripe) { background: var(--c-surface); }
