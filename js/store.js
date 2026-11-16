@@ -11,6 +11,7 @@
  *   mp.remind      sessionStorage              今日の前後 1 日の自分のリマインダーの控え（{ k, id, at, offset, items, more }。計画 stage2-tasklist-v3-plan.md 3-4）
  *   mp.remind.done localStorage                知らせ済みの印（{ 鍵: 時刻 }。鍵は タスクID|日付|時刻|種類。**内容は入れない**。3 日で捨てる。ログアウトでは消さない＝同じ知らせをもう一度出さない）
  *   mp.viewAs     sessionStorage  管理者が見ている社員の画面（そのタブだけ）
+ *   mp.netlog     sessionStorage  通信が駄目だったときの控え（時刻・処理の名前・答えの番号・ホスト名・答えのページの分類（決まった言葉）だけ。本文の文字・token・args は入れない。ログアウトで消す）
  *   mp.flash / mp.inviteName / mp.reloaded  sessionStorage  次の画面に1回だけ渡す文・名前、読み込み直しの印（秘密ではない）
  *
  * パスワード・仮パスワード・招待の文字列・追加コードは保存しない
@@ -19,7 +20,8 @@
   'use strict';
   var MP = window.MP = window.MP || {};
   var K = { viewAs: 'mp.viewAs', deviceKey: 'mp.deviceKey', deviceName: 'mp.deviceName', token: 'mp.token', lastLoginId: 'mp.lastLoginId', timings: 'mp.timings',
-    flash: 'mp.flash', inviteName: 'mp.inviteName', reloaded: 'mp.reloaded', me: 'mp.me', taskView: 'mp.view.tasks', remind: 'mp.remind', remindDone: 'mp.remind.done' };
+    flash: 'mp.flash', inviteName: 'mp.inviteName', reloaded: 'mp.reloaded', me: 'mp.me', taskView: 'mp.view.tasks', remind: 'mp.remind', remindDone: 'mp.remind.done', netLog: 'mp.netlog' };
+  var NETLOG_MAX = 5;           // 通信の控えの数の上限
   var REMIND_DONE_KEEP_MS = 3 * 86400000; // 知らせ済みの印を残す長さ
   var REMIND_DONE_MAX = 2000;             // 印の数の上限（古いものから捨てる）
   var TIMINGS_MAX = 20;
@@ -87,7 +89,18 @@
     clearToken: function () {
       sealed = true; // 初めに立てる（この後に来る pagehide などで控えを書き直さない）
       del(L(), K.token); del(S(), K.token); del(S(), K.viewAs); // 見ている印も消す（残るとログインの依頼に viewAs が付いて断られる）
-      wipe(L(), K.me); wipe(S(), K.me); wipe(S(), K.taskView); wipe(S(), K.remind);
+      wipe(L(), K.me); wipe(S(), K.me); wipe(S(), K.taskView); wipe(S(), K.remind); wipe(S(), K.netLog);
+    },
+
+    /** 通信が駄目だったときの控え（「詳しく」で出す。新しいものが後ろ。最近の NETLOG_MAX 回まで）。形が違えば空 */
+    netLog: function () {
+      var list = parse(get(S(), K.netLog));
+      return Array.isArray(list) ? list.filter(function (x) { return x && typeof x.at === 'number' && typeof x.action === 'string' && Array.isArray(x.tries); }) : [];
+    },
+    addNetLog: function (rec) {
+      var list = MP.store.netLog();
+      list.push(rec);
+      set(S(), K.netLog, JSON.stringify(list.slice(-NETLOG_MAX)));
     },
 
     /**

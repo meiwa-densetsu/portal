@@ -38,7 +38,27 @@
     box.textContent = text || '';
     box.className = 'msg ' + (kind || 'error');
     box.hidden = !text;
+    addNetDetail(box, text);
     if (text && box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** 通信の失敗の一言のときだけ、その下に「詳しく」を付ける（控えがあるときだけ。押すと控えを文字で出す。写真で送れる形） */
+  function addNetDetail(box, text) {
+    var api = MP.api;
+    if (!text || !api || !api.netLogText) return;
+    var s = String(text);
+    if (s.indexOf(api.NETWORK_TEXT) < 0 && s.indexOf(api.SAVE_UNKNOWN_TEXT) < 0) return;
+    if (!api.netLogText()) return;
+    box.appendChild(el('div', { class: 'msg-detail' }, [el('button', {
+      type: 'button', class: 'btn', id: 'net-detail', text: '詳しく',
+      on: { click: function () {
+        var detail = api.netLogText();
+        dialog({ title: '通信の詳しい記録', body: el('div', {}, [
+          el('p', { class: 'dialog-body', text: 'この画面を写真に撮って、管理者に送ってください（パスワードや入力の中身は入っていません）' }),
+          el('pre', { class: 'net-detail-text', id: 'net-detail-text', text: detail || '記録はありません' }),
+        ]) });
+      } },
+    })]));
   }
 
   /** 前の画面から渡された文を1回だけ出す */

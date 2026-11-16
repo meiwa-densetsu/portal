@@ -146,6 +146,10 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--c-
 .stale-note { color: var(--c-sub); font-size: var(--fs-small); margin: 0 0 var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px dashed var(--c-line-strong); border-radius: var(--radius); }
 .msg.warn { background: var(--c-warn-weak); border-color: var(--c-warn); color: var(--c-warn); }
 .msg.ok { background: var(--c-ok-weak); border-color: var(--c-ok); color: var(--c-ok); }
+/* 通信の失敗の一言の下の「詳しく」と、その中身（写真で送れるように、折り返して全部出す） */
+.msg-detail { margin-top: var(--sp-2); }
+.net-detail-text { margin: var(--sp-3) 0 0; padding: var(--sp-3); border: 1px solid var(--c-line); border-radius: var(--radius); background: var(--c-bg);
+  font: inherit; font-size: var(--fs-small); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
 
 .busy {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
