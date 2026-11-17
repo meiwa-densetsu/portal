@@ -200,6 +200,62 @@
 
       window.addEventListener('beforeunload', function (ev) { if (dirty()) { ev.preventDefault(); ev.returnValue = ''; } });
 
+      // ------------------------------------------------ ファイルから取り込む（計画 stage2-calendar-import-sw-plan.md 1-2）
+      // 画面の区分（cur.days）を書き換えるだけ。保存はしない（今の「保存する」で保存する）。ファイルの中身はサーバーに送らない
+      var CI = MP.calImport;
+      var importing = false;
+
+      function importFailed(errors) {
+        return ui.notice('このファイルは取り込めません', 'カレンダーは何も変えていません。\n\n' + CI.errorText(errors));
+      }
+
+      function importFile(f) {
+        var at = cur;
+        var kind = CI.kindOf(f.name);
+        if (!kind) return importFailed([{ line: null, text: '.csv か .xlsx のファイルを選んでください' }]);
+        if (f.size > CI.LIMITS.FILE_MAX_BYTES) return importFailed([{ line: null, text: 'ファイルが大きすぎます（2MB まで）' }]); // 大きすぎるファイルは読まない
+        return f.arrayBuffer().then(function (buf) {
+          return CI.read(window.ExcelJS, kind, buf);
+        }, function () {
+          return { error: 'ファイルを読めませんでした' };
+        }).then(function (r) {
+          if (cur !== at) return;
+          if (r.error) return importFailed([{ line: null, text: r.error }]);
+          var c = CI.check(r.rows, { C: C, period: cur.period, rules: cur.rules, today: cur.today, confirmed: !!(cur.row && cur.row.confirmed), base: cur.base, days: cur.days });
+          if (!c.ok) return importFailed(c.errors);
+          var s = c.summary;
+          var text = 'ファイル: ' + f.name + '\n' +
+            '出勤 ' + s.workDays + ' 日（うち有給推奨 ' + s.paidDays + ' 日）・休み ' + s.offDays + ' 日\n' +
+            '変わる日 ' + c.changed + ' 日・ファイルに無い日 ' + c.missing + ' 日（今のまま）' +
+            (c.unsaved ? '\n\n保存していない変更 ' + c.unsaved + ' 日があります。その上に取り込みます。' : '') +
+            '\n\n取り込んでも、まだ保存しません。見比べてから「保存する」を押してください。';
+          return ui.confirm('このファイルを取り込みますか？', text, '取り込む').then(function (yes) {
+            if (!yes || cur !== at) return;
+            cur.days = c.days;
+            cur.view.refreshAll();
+            renderSummary();
+            ui.pageMessage('取り込みました（まだ保存していません）。太い枠の日が変わった日です。見比べてから「保存する」を押してください', 'ok');
+          });
+        });
+      }
+
+      $('import').addEventListener('click', function () {
+        if (!cur || importing) return;
+        $('import-file').value = '';
+        $('import-file').click();
+      });
+      $('import-file').addEventListener('change', function () {
+        var input = $('import-file');
+        var f = input.files && input.files[0];
+        if (!f || !cur || importing) { input.value = ''; return; }
+        importing = true;
+        ui.pageMessage('');
+        var p = run(function () { return importFile(f); });
+        // 同じ名前のファイルを選び直しても読めるように、欄を空に戻す
+        var end = function () { importing = false; input.value = ''; };
+        if (p) p.then(end, function () { end(); ui.pageMessage('ファイルを読めませんでした', 'error'); }); else end();
+      });
+
       function reloadAfterConflict(text) {
         return ui.notice('他の人が先に変更しました', text + '\n\n読み込み直します。変えていた日は、もう一度押し直してください。')
           .then(function () { return loadDays(cur.calendar.calendarId, cur.period.from); });

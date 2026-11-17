@@ -2,13 +2,14 @@
  * 会社カレンダーの12か月の表（admin_calendars.html と admin_employee_calendar.html で使う部品）
  *
  *   var v = MP.calView.render(container, {
- *     period: { from, to, days }, rules,                     // rules は サーバーの cal_rules_（WEEK_START_DOW など）
+ *     period: { from, to, days }, rules,                     // rules は サーバーの cal_rules_
  *     cell: function (i, date, dow) → { type: 'W'|'H'|'P'|null, disabled, changed, swap, note },
  *     onClick: function (i) { … }                          // 押された日の番号（期間の初めから 0, 1, …）
  *   });
  *   v.refresh(i)  … その日のマスと、その月の出勤日数だけを描き直す（押した後もフォーカスが残る）
  *
  * 色だけで区分を分けない（「出」「休」「推」の字も出す）。マスは「11月21日 土曜 出勤」のように読み上げられる名前を持つ
+ * 1 週間の並びは、見た目だけ日曜始まり（VIEW_WEEK_START）。勤務時間の計算の週（rules.WEEK_START_DOW = 月曜。就業規則 第15条）とは別
  */
 (function () {
   'use strict';
@@ -16,12 +17,13 @@
   var TYPE_TEXT = { W: '出勤', H: '休み', P: '有給推奨' };
   var TYPE_MARK = { W: '出', H: '休', P: '推' };
   var DOW = ['日', '月', '火', '水', '木', '金', '土'];
+  var VIEW_WEEK_START = 0; // 表の並びの初めの曜日（0 = 日曜。見た目だけ。計画 stage2-calendar-import-sw-plan.md 第2章）
 
   function render(container, o) {
     var ui = MP.ui, el = ui.el;
     var C = window.CalcCalendar;
     var start = C.dayNumber(o.period.from);
-    var weekStart = typeof o.rules.WEEK_START_DOW === 'number' ? o.rules.WEEK_START_DOW : 1;
+    var weekStart = VIEW_WEEK_START;
     var buttons = [];
     var months = []; // { first, last, countEl }
     ui.clear(container);

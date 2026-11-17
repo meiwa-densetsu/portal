@@ -4,18 +4,41 @@
  * - HTML はまずネット。通信そのものが失敗したときだけ、覚えた分を出す。鍵は「?」より後ろを外した住所
  * - 部品（CSS・JS・アイコン）はまず覚えた分。出した後に、裏で 1 回だけ取り直して差し替える
  * - 版は、覚える場所の名前と片付けにだけ使う。通信の扱いは版によらず同じ
+ * - 新しい版のインストールで、画面のファイルをすべて先に覚える（PRECACHE。1 つでも取れなければインストールを失敗にする。計画 stage2-calendar-import-sw-plan.md 第3章）
  * - 開いている画面を途中で横取りしない（すぐの交代・すぐの引き取りはしない。交代は画面がすべて閉じた後）
  * - 止めるときは tools/sw_stop.js をこの名前で置く（このファイルを消すだけでは、端末に登録が残る）
  */
 'use strict';
 
-var VERSION = '21'; // web/js/config.js の APP_VERSION と同じ値（tests/web_static_test.js が確かめる）
+var VERSION = '22'; // web/js/config.js の APP_VERSION と同じ値（tests/web_static_test.js が確かめる）
 var PREFIX = 'portal-v';
 var CACHE = PREFIX + VERSION;
 var PAGE_PATH = /(?:\.html|\/)$/;
 var PART_PATH = /\.(?:js|css|png|svg|ico|json)$/;
 var PART_QUERY = /^(?:\?v=[A-Za-z0-9._-]{1,20})?$/; // 「?」が無いか、版だけ
 var refreshed = {}; // 裏で取り直した住所（起きている間だけの控え）
+
+// 新しい版のインストールのときに、まとめて覚えるファイル（計画 stage2-calendar-import-sw-plan.md 第3章）。
+// すべての HTML（鍵は「?」より後ろを外した住所）・入口の ./・HTML が読む部品（HTML に書いてあるとおりの ?v= 付き）・manifest とそのアイコン。
+// tests/web_static_test.js が、web/ の中身とちょうど同じか・?v= が VERSION と同じかを確かめる（足し忘れ・ずれを止める）
+var PRECACHE = [
+  './', 'admin_bulk.html', 'admin_calendars.html', 'admin_changes.html', 'admin_closing.html', 'admin_departments.html', 'admin_devices.html',
+  'admin_employee_calendar.html', 'admin_employees.html', 'admin_export.html', 'admin_legal.html', 'admin_task_export.html', 'devices.html',
+  'home.html', 'index.html', 'invite.html', 'login.html', 'manager.html', 'password.html', 'register.html', 'report.html', 'report_grid.html',
+  'share.html', 'share_view.html', 'task_recurring.html', 'task_requests.html', 'tasks.html', 'css/style.css?v=22', 'gen/calc_calendar.js?v=22',
+  'gen/calc_report.js?v=22', 'gen/calc_task.js?v=22', 'gen/calc_worktime.js?v=22', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
+  'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'js/api.js?v=22', 'js/boot.js?v=22', 'js/bulk.js?v=22',
+  'js/bulk_book.js?v=22', 'js/calendar_import.js?v=22', 'js/calendar_view.js?v=22', 'js/config.js?v=22', 'js/export_book.js?v=22',
+  'js/export_layout.js?v=22', 'js/grid.js?v=22', 'js/grid_core.js?v=22', 'js/guard.js?v=22', 'js/page_admin_bulk.js?v=22',
+  'js/page_admin_calendars.js?v=22', 'js/page_admin_changes.js?v=22', 'js/page_admin_closing.js?v=22', 'js/page_admin_departments.js?v=22',
+  'js/page_admin_devices.js?v=22', 'js/page_admin_employee_calendar.js?v=22', 'js/page_admin_employees.js?v=22', 'js/page_admin_export.js?v=22',
+  'js/page_admin_legal.js?v=22', 'js/page_admin_task_export.js?v=22', 'js/page_devices.js?v=22', 'js/page_home.js?v=22', 'js/page_index.js?v=22',
+  'js/page_invite.js?v=22', 'js/page_login.js?v=22', 'js/page_manager.js?v=22', 'js/page_password.js?v=22', 'js/page_register.js?v=22',
+  'js/page_report.js?v=22', 'js/page_report_grid.js?v=22', 'js/page_share.js?v=22', 'js/page_share_view.js?v=22', 'js/page_task_recurring.js?v=22',
+  'js/page_task_requests.js?v=22', 'js/page_tasks.js?v=22', 'js/remind.js?v=22', 'js/report.js?v=22', 'js/report_text.js?v=22', 'js/store.js?v=22',
+  'js/sw_register.js?v=22', 'js/task_dialogs.js?v=22', 'js/task_export_layout.js?v=22', 'js/task_import.js?v=22', 'js/task_item.js?v=22',
+  'js/task_optimistic.js?v=22', 'js/task_view.js?v=22', 'js/ui.js?v=22', 'manifest.json', 'vendor/exceljs-4.4.0.min.js?v=22',
+];
 
 function noop() {}
 
@@ -71,7 +94,42 @@ function part(event, req) {
   });
 }
 
-self.addEventListener('install', noop);
+/**
+ * インストールの先読み: PRECACHE を 1 つずつ順に「取る → 書く」。HTTP の控えは使わない（古い版のファイルを入れない）。
+ * 1 つでも取れない（storable でない・通信の失敗）・書けなければ失敗（put() と違い、失敗を握りつぶさない）。
+ * 失敗したら新しい版の覚える場所を消してから失敗で終える（消すのに失敗しても失敗で終える）。半端な控えのまま新しい版に替わらない
+ */
+function precache() {
+  return caches.open(CACHE).then(function (c) {
+    var chain = Promise.resolve();
+    PRECACHE.forEach(function (p) {
+      var key = new URL(p, self.registration.scope).href;
+      chain = chain.then(function () {
+        return fetch(key, { cache: 'reload' }).then(function (res) {
+          if (!storable(res)) throw new Error('先読みで取れないファイル: ' + p);
+          return c.put(key, res);
+        });
+      });
+    });
+    return chain;
+  }).then(null, function (err) {
+    return caches.delete(CACHE).then(function () { throw err; }, function () { throw err; });
+  });
+}
+
+self.addEventListener('install', function (event) {
+  var job = precache();
+  job.then(null, noop); // 失敗は waitUntil に伝える（ここは「だれも受けていない失敗」の知らせを出さないためだけ）
+  event.waitUntil(job);
+});
+
+// 今この画面を受け持っている sw.js の版を答える（管理者のホームの一番下に出す。計画 第6章）。返すのは版の数字だけ。ほかの動きは変えない
+self.addEventListener('message', function (event) {
+  var d = event.data;
+  var port = event.ports && event.ports[0];
+  if (!d || d.type !== 'version' || !port) return;
+  port.postMessage({ version: VERSION });
+});
 
 self.addEventListener('activate', function (event) {
   // 古い版の覚える場所だけを消す。消し終わるまで待つ。1 つの失敗で止めない
