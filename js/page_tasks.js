@@ -166,6 +166,24 @@
       }
       if (timing.fresh !== null) parts.push('最新 ' + sec(timing.fresh) + inner);
       var text = parts.join('・');
+      // 2 行目: サーバーの中の細かい内訳（計画 stage2-task-open-measure-plan.md 第2章）。サーバーが付けた鍵だけ（古いサーバーには無い）
+      var q = timing.serverMs !== null && timing.phases;
+      if (q) {
+        var MS = [['touch', '時刻を書く'], ['lockWait', 'ロック待ち'], ['lockBody', 'ロックの中'], ['flush', '確定'], ['epoch', '番号'], ['open', '開く'], ['single', '1 枚ずつ'], ['exists', 'あるか']];
+        var det = MS.filter(function (x) { return typeof q[x[0]] === 'number'; }).map(function (x) {
+          return x[1] + ' ' + num(q[x[0]]) + (x[0] === 'single' && typeof q.singleN === 'number' ? '（' + q.singleN + ' 回）' : '');
+        });
+        var drop = [['dropLock', 'ロック'], ['dropEpoch', '番号']].filter(function (x) { return typeof q[x[0]] === 'number'; })
+          .map(function (x) { return x[1] + ' ' + q[x[0]] + ' 回'; });
+        if (drop.length) det.push('捨てた ' + drop.join('・'));
+        if (det.length) text += '\n内訳: ' + det.join('・') + '（内訳は上の区間の中に含まれる時間）';
+        // 3 行目: 1 枚ずつ読んだ表と回数（管理者の答えにだけある）。多い順
+        var sb = q.singleBy;
+        if (sb) {
+          var names = Object.keys(sb).sort(function (a, b) { return sb[b] - sb[a]; }).map(function (k) { return k + ' ' + sb[k]; });
+          if (names.length) text += '\n1 枚ずつ読んだ表: ' + names.join('・');
+        }
+      }
       // 行の多い表の上位 3 つ（管理者の答えにだけある）
       var by = timing.phases && timing.phases.rowsBy;
       if (by) {

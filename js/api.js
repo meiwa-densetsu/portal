@@ -36,19 +36,26 @@
 
   var SERVER_MS_MAX = 600000; // サーバーの処理時間として取り込む上限（GAS の 1 回の上限 6 分）
   // 区切りごとの時間の鍵（計画 stage2-task-open-speed-plan.md 2-3）。これ以外は捨てる
-  var PHASE_KEYS = ['names', 'read', 'parse', 'auth', 'fallback', 'check', 'maintain', 'view', 'me', 'other', 'rows'];
+  var PHASE_KEYS = ['names', 'read', 'parse', 'auth', 'fallback', 'check', 'maintain', 'view', 'me', 'other', 'rows',
+    // サーバーの中の細かい内訳（計画 stage2-task-open-measure-plan.md 第1・2章。どれも上の区間の内数。ミリ秒、または回数）
+    'touch', 'lockWait', 'lockBody', 'flush', 'epoch', 'open', 'single', 'singleN', 'exists', 'dropLock', 'dropEpoch'];
+  // 名前 → 数の入れ物（rowsBy … 表ごとの行の数・singleBy … 表ごとの 1 枚ずつ読んだ回数。どちらも管理者の答えにだけある）
+  var BY_KEYS = ['rowsBy', 'singleBy'];
   var ROWS_NAME = /^[぀-ヿ一-鿿（）]{1,20}$/; // 表の種類の名前（かな・漢字・全角のかっこだけ。サーバーが決まった名前に替えたもの）
   function okInt(v) { return typeof v === 'number' && isFinite(v) && v >= 0 && Math.floor(v) === v && v <= SERVER_MS_MAX * 100; }
-  /** 答えの serverPhases から、決まった鍵の 0 以上の整数だけを取り出す。rowsBy は名前の形が正しく値が整数のものだけ（30 個まで）。何も無ければ null */
+  /** 名前 → 数の入れ物から、名前の形が正しく値が整数のものだけ（30 個まで）。何も無ければ null */
+  function cleanBy(o) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+    var by = {}, n = 0;
+    Object.keys(o).forEach(function (k) { if (n < 30 && ROWS_NAME.test(k) && okInt(o[k])) { by[k] = o[k]; n++; } });
+    return n ? by : null;
+  }
+  /** 答えの serverPhases から、決まった鍵の 0 以上の整数だけを取り出す。rowsBy・singleBy は cleanBy を通したものだけ。何も無ければ null */
   function cleanPhases(p) {
     if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
     var out = {}, any = false;
     PHASE_KEYS.forEach(function (k) { if (okInt(p[k])) { out[k] = p[k]; any = true; } });
-    if (p.rowsBy && typeof p.rowsBy === 'object' && !Array.isArray(p.rowsBy)) {
-      var by = {}, n = 0;
-      Object.keys(p.rowsBy).forEach(function (k) { if (n < 30 && ROWS_NAME.test(k) && okInt(p.rowsBy[k])) { by[k] = p.rowsBy[k]; n++; } });
-      if (n) { out.rowsBy = by; any = true; }
-    }
+    BY_KEYS.forEach(function (k) { var by = cleanBy(p[k]); if (by) { out[k] = by; any = true; } });
     return any ? out : null;
   }
   var SAVE_UNKNOWN_TEXT ='保存できたか分かりません。もう一度同じボタンを押してください';
