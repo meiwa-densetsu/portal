@@ -10,23 +10,23 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=22">
-<script src="js/boot.js?v=22" defer></script>
-<script src="js/sw_register.js?v=22" defer></script>
-<script src="js/config.js?v=22" defer></script>
-<script src="js/store.js?v=22" defer></script>
-<script src="js/ui.js?v=22" defer></script>
-<script src="js/api.js?v=22" defer></script>
-<script src="js/report.js?v=22" defer></script>
-<script src="js/guard.js?v=22" defer></script>
-<script src="gen/calc_task.js?v=22" defer></script>
-<script src="js/remind.js?v=22" defer></script>
-<script src="gen/calc_calendar.js?v=22" defer></script>
-<script src="js/calendar_view.js?v=22" defer></script>
-<script src="vendor/exceljs-4.4.0.min.js?v=22" defer></script>
-<script src="js/bulk_book.js?v=22" defer></script>
-<script src="js/calendar_import.js?v=22" defer></script>
-<script src="js/page_admin_calendars.js?v=22" defer></script>
+<link rel="stylesheet" href="css/style.css?v=23">
+<script src="js/boot.js?v=23" defer></script>
+<script src="js/sw_register.js?v=23" defer></script>
+<script src="js/config.js?v=23" defer></script>
+<script src="js/store.js?v=23" defer></script>
+<script src="js/ui.js?v=23" defer></script>
+<script src="js/api.js?v=23" defer></script>
+<script src="js/report.js?v=23" defer></script>
+<script src="js/guard.js?v=23" defer></script>
+<script src="gen/calc_task.js?v=23" defer></script>
+<script src="js/remind.js?v=23" defer></script>
+<script src="gen/calc_calendar.js?v=23" defer></script>
+<script src="js/calendar_view.js?v=23" defer></script>
+<script src="vendor/exceljs-4.4.0.min.js?v=23" defer></script>
+<script src="js/bulk_book.js?v=23" defer></script>
+<script src="js/calendar_import.js?v=23" defer></script>
+<script src="js/page_admin_calendars.js?v=23" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -60,6 +60,11 @@
     <div id="active-field" class="field" hidden>
       <label class="check" for="cal-active"><input type="checkbox" id="cal-active"> 使っている</label>
       <p class="hint">使わなくなったカレンダーは、チェックを外します。新しく社員に割り当てられなくなります（今割り当てている人は、そのままです）</p>
+    </div>
+    <div class="field">
+      <label class="check" for="cal-variant"><input type="checkbox" id="cal-variant"> 1 年単位の変形労働時間制の協定がある</label>
+      <p class="hint">外すと、このカレンダーの人の法律の目安（時間外）は、1 日 8 時間・1 週 40 時間を超えた分で数えます。協定を結んで労働基準監督署に届けたカレンダーだけチェックを入れます</p>
+      <p id="variant-unknown" class="msg error" hidden>協定の印が読めません。選び直して保存してください</p>
     </div>
     <button type="submit" class="btn primary block">保存する</button>
     <button type="button" id="cancel" class="btn block">やめる</button>

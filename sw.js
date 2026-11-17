@@ -10,7 +10,7 @@
  */
 'use strict';
 
-var VERSION = '22'; // web/js/config.js の APP_VERSION と同じ値（tests/web_static_test.js が確かめる）
+var VERSION = '23'; // web/js/config.js の APP_VERSION と同じ値（tests/web_static_test.js が確かめる）
 var PREFIX = 'portal-v';
 var CACHE = PREFIX + VERSION;
 var PAGE_PATH = /(?:\.html|\/)$/;
@@ -25,19 +25,19 @@ var PRECACHE = [
   './', 'admin_bulk.html', 'admin_calendars.html', 'admin_changes.html', 'admin_closing.html', 'admin_departments.html', 'admin_devices.html',
   'admin_employee_calendar.html', 'admin_employees.html', 'admin_export.html', 'admin_legal.html', 'admin_task_export.html', 'devices.html',
   'home.html', 'index.html', 'invite.html', 'login.html', 'manager.html', 'password.html', 'register.html', 'report.html', 'report_grid.html',
-  'share.html', 'share_view.html', 'task_recurring.html', 'task_requests.html', 'tasks.html', 'css/style.css?v=22', 'gen/calc_calendar.js?v=22',
-  'gen/calc_report.js?v=22', 'gen/calc_task.js?v=22', 'gen/calc_worktime.js?v=22', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'js/api.js?v=22', 'js/boot.js?v=22', 'js/bulk.js?v=22',
-  'js/bulk_book.js?v=22', 'js/calendar_import.js?v=22', 'js/calendar_view.js?v=22', 'js/config.js?v=22', 'js/export_book.js?v=22',
-  'js/export_layout.js?v=22', 'js/grid.js?v=22', 'js/grid_core.js?v=22', 'js/guard.js?v=22', 'js/page_admin_bulk.js?v=22',
-  'js/page_admin_calendars.js?v=22', 'js/page_admin_changes.js?v=22', 'js/page_admin_closing.js?v=22', 'js/page_admin_departments.js?v=22',
-  'js/page_admin_devices.js?v=22', 'js/page_admin_employee_calendar.js?v=22', 'js/page_admin_employees.js?v=22', 'js/page_admin_export.js?v=22',
-  'js/page_admin_legal.js?v=22', 'js/page_admin_task_export.js?v=22', 'js/page_devices.js?v=22', 'js/page_home.js?v=22', 'js/page_index.js?v=22',
-  'js/page_invite.js?v=22', 'js/page_login.js?v=22', 'js/page_manager.js?v=22', 'js/page_password.js?v=22', 'js/page_register.js?v=22',
-  'js/page_report.js?v=22', 'js/page_report_grid.js?v=22', 'js/page_share.js?v=22', 'js/page_share_view.js?v=22', 'js/page_task_recurring.js?v=22',
-  'js/page_task_requests.js?v=22', 'js/page_tasks.js?v=22', 'js/remind.js?v=22', 'js/report.js?v=22', 'js/report_text.js?v=22', 'js/store.js?v=22',
-  'js/sw_register.js?v=22', 'js/task_dialogs.js?v=22', 'js/task_export_layout.js?v=22', 'js/task_import.js?v=22', 'js/task_item.js?v=22',
-  'js/task_optimistic.js?v=22', 'js/task_view.js?v=22', 'js/ui.js?v=22', 'manifest.json', 'vendor/exceljs-4.4.0.min.js?v=22',
+  'share.html', 'share_view.html', 'task_recurring.html', 'task_requests.html', 'tasks.html', 'css/style.css?v=23', 'gen/calc_calendar.js?v=23',
+  'gen/calc_report.js?v=23', 'gen/calc_task.js?v=23', 'gen/calc_worktime.js?v=23', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
+  'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'js/api.js?v=23', 'js/boot.js?v=23', 'js/bulk.js?v=23',
+  'js/bulk_book.js?v=23', 'js/calendar_import.js?v=23', 'js/calendar_view.js?v=23', 'js/config.js?v=23', 'js/export_book.js?v=23',
+  'js/export_layout.js?v=23', 'js/grid.js?v=23', 'js/grid_core.js?v=23', 'js/guard.js?v=23', 'js/page_admin_bulk.js?v=23',
+  'js/page_admin_calendars.js?v=23', 'js/page_admin_changes.js?v=23', 'js/page_admin_closing.js?v=23', 'js/page_admin_departments.js?v=23',
+  'js/page_admin_devices.js?v=23', 'js/page_admin_employee_calendar.js?v=23', 'js/page_admin_employees.js?v=23', 'js/page_admin_export.js?v=23',
+  'js/page_admin_legal.js?v=23', 'js/page_admin_task_export.js?v=23', 'js/page_devices.js?v=23', 'js/page_home.js?v=23', 'js/page_index.js?v=23',
+  'js/page_invite.js?v=23', 'js/page_login.js?v=23', 'js/page_manager.js?v=23', 'js/page_password.js?v=23', 'js/page_register.js?v=23',
+  'js/page_report.js?v=23', 'js/page_report_grid.js?v=23', 'js/page_share.js?v=23', 'js/page_share_view.js?v=23', 'js/page_task_recurring.js?v=23',
+  'js/page_task_requests.js?v=23', 'js/page_tasks.js?v=23', 'js/remind.js?v=23', 'js/report.js?v=23', 'js/report_text.js?v=23', 'js/store.js?v=23',
+  'js/sw_register.js?v=23', 'js/task_dialogs.js?v=23', 'js/task_export_layout.js?v=23', 'js/task_import.js?v=23', 'js/task_item.js?v=23',
+  'js/task_optimistic.js?v=23', 'js/task_view.js?v=23', 'js/ui.js?v=23', 'manifest.json', 'vendor/exceljs-4.4.0.min.js?v=23',
 ];
 
 function noop() {}

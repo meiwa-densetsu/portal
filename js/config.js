@@ -8,7 +8,7 @@
   MP.config = {
     EXEC_URL: 'https://script.google.com/macros/s/AKfycbzHNIBbtfQnjemKMHmp6Qh2PypQ82cq2OGoax2by7pDBg4Sht6cGMlVu80k9I38b5IrqA/exec',
     API_VERSION: 8,
-    APP_VERSION: '22',
+    APP_VERSION: '23',
     // リマインダー（計画 stage2-tasklist-v3-plan.md 第6章）: 一覧を読み直す間隔（分）・時刻を確かめる間隔（秒）・過ぎてから出す限り（分）・操作の後に読み直すまで（秒）
     REMIND: { REFRESH_MIN: 10, CHECK_SEC: 20, LATE_MAX_MIN: 720, AFTER_OP_SEC: 5 },
     // タスクの「今日」が切り替わる時刻（0 時からの分。360 = 6:00）。サーバーの RULES.TASK.DAY_START_MIN と同じ値（tests/web_static_test.js が確かめる）。

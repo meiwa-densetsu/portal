@@ -483,6 +483,115 @@ var CalcWorktime = (function () {
       remainingToFrame: Math.max(0, frame - sumBase),
       deepNight: deepNight,
       legalHoliday: legalHoliday,
+      mode: 'variant',
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 1-6b. 法律上の時間外（変形の協定が無い人。1日8時間・1週40時間。推計）
+  //       計画 docs/plans/stage2-standard-hours-plan.md 第2章
+  // ---------------------------------------------------------------------------
+
+  var STD_STATUSES = { work: true, off: true, leave: true, missing: true, unknown: true, other: true };
+
+  /**
+   * input: {
+   *   from, to   答えを出す日（その人の「ふつう」の区間。続いている区間はつなげて1つ）
+   *   days: [{ date, status, work, legalHoliday, deepNight }]  from を含む週の初めから to を含む週の終わりまでの全日
+   *     status: work / off / leave / missing（予定があるのに日報が無い）/ unknown（予定が分からず日報も無い）/ other（「ふつう」でない日。数えない）
+   *   asOf   区間の中の日を何日まで数えるか
+   *   today  区間の外の日を何日まで数えるか・週が終わったか
+   * }
+   * 数え終わりの日: 区間の中は asOf、区間の外は today（状態・時間・抜けの判定でどれも同じ日を使う）
+   */
+  function legalOvertimeStandard(input, rules) {
+    if (!input || typeof input !== 'object') throw calcError_('BAD_RANGE', '入力がありません');
+    var from = mustDay_(input.from, '区間の初め');
+    var to = mustDay_(input.to, '区間の終わり');
+    var asOf = mustDay_(input.asOf, 'asOf');
+    var today = mustDay_(input.today, 'today');
+    if (from > to) throw calcError_('BAD_RANGE', '期間の並びが正しくありません');
+    var first = from - ((dowOf(from) - rules.WEEK_START_DOW + 7) % 7);
+    var last = to + (6 - ((dowOf(to) - rules.WEEK_START_DOW + 7) % 7));
+
+    var byNum = {};
+    var list = input.days || [];
+    for (var i = 0; i < list.length; i++) {
+      var d = list[i];
+      var n = mustDay_(d && d.date, '日報');
+      if (n < first || n > last) throw calcError_('DAYS_INVALID', '週の外の日があります: ' + d.date);
+      if (byNum[n]) throw calcError_('DAYS_INVALID', '同じ日が2回あります: ' + d.date);
+      if (!Object.prototype.hasOwnProperty.call(STD_STATUSES, d.status)) throw calcError_('DAYS_INVALID', '状態が分かりません: ' + d.date + ' ' + d.status);
+      if (d.status === 'work') {
+        if (!isWhole_(d.work) || !isWhole_(d.legalHoliday) || !isWhole_(d.deepNight) ||
+            d.work < 0 || d.legalHoliday < 0 || d.deepNight < 0 || d.legalHoliday > d.work || d.deepNight > d.work) {
+          throw calcError_('DAYS_INVALID', '時間が正しくありません: ' + d.date);
+        }
+      }
+      byNum[n] = d;
+    }
+    for (var m = first; m <= last; m++) {
+      if (!byNum[m]) throw calcError_('DAYS_INVALID', '日が抜けています: ' + dateOf(m));
+    }
+
+    var dailyLimit = rules.DAILY_LIMIT_MIN;
+    var weeklyLimit = rules.WEEKLY_LIMIT_MIN;
+    var outDays = [];
+    var outWeeks = [];
+    var reasonsAll = {};
+    var deepNight = 0;
+    var legalHoliday = 0;
+
+    for (var wkStart = first; wkStart <= last; wkStart += 7) {
+      var wkEnd = wkStart + 6;
+      var reasons = {};
+      if (wkEnd > today) reasons.NOT_YET = true;
+      var C = 0;
+      var weekOT = 0;
+      var weekOTInRange = 0;
+      var rows = [];
+      for (var x = wkStart; x <= wkEnd; x++) {
+        var day = byNum[x];
+        var inRange = x >= from && x <= to;
+        var cutoff = inRange ? asOf : today;
+        if (inRange && x > asOf) reasons.NOT_YET = true;
+        var reached = x <= cutoff;
+        if (day.status === 'other') reasons.MIXED_WEEK = true;
+        if (day.status === 'missing' && reached) reasons.MISSING = true;
+        if (day.status === 'unknown' && reached) reasons.NO_SCHEDULE = true;
+        var counted = day.status === 'work' && reached;
+        var W = counted ? day.work - day.legalHoliday : 0;
+        var dayOT = Math.max(0, W - dailyLimit);
+        if (counted && inRange) { deepNight += day.deepNight; legalHoliday += day.legalHoliday; }
+        var prev = C;
+        C += W - dayOT;
+        var inc = Math.max(0, C - weeklyLimit) - Math.max(0, prev - weeklyLimit);
+        weekOT += inc;
+        if (inRange) weekOTInRange += inc;
+        rows.push({ num: x, inRange: inRange, dayOT: dayOT, weekOT: inc });
+      }
+      var reasonList = Object.keys(reasons).sort();
+      reasonList.forEach(function (k) { reasonsAll[k] = true; });
+      var provisional = reasonList.length > 0;
+      rows.forEach(function (r) {
+        if (r.inRange) outDays.push({ date: dateOf(r.num), dayOT: r.dayOT, weekOT: r.weekOT, yearOT: 0, settlementOT: 0, provisional: provisional });
+      });
+      outWeeks.push({ from: dateOf(wkStart), to: dateOf(wkEnd), weekOT: weekOT, weekOTInRange: weekOTInRange, boundaryWeek: false, provisionalReasons: reasonList });
+    }
+    var reasonsOut = Object.keys(reasonsAll).sort();
+    return {
+      final: reasonsOut.length === 0,
+      provisionalReasons: reasonsOut,
+      days: outDays,
+      weeks: outWeeks,
+      yearOT: 0,
+      settlementOT: 0,
+      yearOTSoFar: null,
+      frame: null,
+      remainingToFrame: null,
+      deepNight: deepNight,
+      legalHoliday: legalHoliday,
+      mode: 'standard',
     };
   }
 
@@ -580,6 +689,7 @@ var CalcWorktime = (function () {
     splitShift: splitShift,
     dayBalance: dayBalance,
     legalOvertime: legalOvertime,
+    legalOvertimeStandard: legalOvertimeStandard,
     payPeriodOf: payPeriodOf,
     rulesCanonical: rulesCanonical,
     rulesKey: rulesKey,

@@ -14,7 +14,17 @@
     var REASONS = {
       MISSING: '未入力の日があります', NOT_YET: '年度の途中です', BOUNDARY_WEEK: '境目の週の数え方を確認中です',
       SCHEDULE_UNKNOWN: 'カレンダーが未設定・下書きの期間があります', SUMMARY_STALE: '集計がずれています（作り直してください）',
+      // 協定の無いカレンダーの人（計画 stage2-standard-hours-plan.md 第4章）
+      NO_SCHEDULE: 'カレンダーが確定していない日があり、日報の無い日を見つけられません',
+      MIXED_WEEK: '変形と、ふつうの決まりが切り替わる週があります',
+      VARIANT_UNKNOWN: 'カレンダーの協定の印が読めません。会社カレンダーで選び直してください',
     };
+    var MODES = { standard: 'ふつうの決まり（1 日 8 時間・週 40 時間）', mixed: '年度の途中で数え方が変わります' };
+
+    /** 数え方の一言（1 年単位の変形の人は出さない） */
+    function modeLine(e) {
+      return MODES[e.mode] ? ui.el('p', { class: 'sub', text: '数え方: ' + MODES[e.mode] }) : null;
+    }
 
     function hm(min) { return min === null || min === undefined ? '—' : CW.formatHm(min); }
     function monthLabel(ym) { return Number(ym.slice(0, 4)) + '年' + Number(ym.slice(5, 7)) + '月'; }
@@ -74,8 +84,10 @@
         var nowM = e.nowMonth;
         var lines = [
           ui.el('div', { class: 'item-title', text: e.name + (e.active ? '' : '（利用停止）') }),
-          nowM ? ui.el('p', {}, ['今月（' + monthLabel(nowM.month) + '）: ' + prefix(e) + hm(nowM.overtime) + '（上限 ' + hm(data.limits.MONTH_MIN) + '） ', levelTag(nowM.level)]) : null,
-          ui.el('p', {}, ['年度の合計: ' + prefix(e) + hm(e.yearOvertime) + '（上限 ' + hm(data.limits.YEAR_MIN) + '） ', levelTag(e.yearLevel)]),
+          modeLine(e),
+          // 上限は社員・月ごと（その時の数え方で決まる。計画 第3・4章）
+          nowM ? ui.el('p', {}, ['今月（' + monthLabel(nowM.month) + '）: ' + prefix(e) + hm(nowM.overtime) + '（上限 ' + hm(nowM.monthLimit) + '） ', levelTag(nowM.level)]) : null,
+          ui.el('p', {}, ['年度の合計: ' + prefix(e) + hm(e.yearOvertime) + '（上限 ' + hm(e.yearLimit) + '） ', levelTag(e.yearLevel)]),
           e.provisionalReasons.length ? ui.el('p', { class: 'sub', text: e.provisionalReasons.map(function (k) { return REASONS[k] || k; }).join('・') }) : null,
           ui.el('div', { class: 'item-actions' }, [
             ui.el('button', { type: 'button', class: 'btn', text: '詳しく見る', on: { click: function () { openDetail(e); } } }),
@@ -101,10 +113,13 @@
       ui.$('detail-title').textContent = e.name + 'さん';
       var box = ui.clear(ui.$('detail'));
       if (e.provisionalReasons.length) box.appendChild(ui.el('p', { class: 'msg warn', text: '未確定: ' + e.provisionalReasons.map(function (k) { return REASONS[k] || k; }).join('・') }));
+      var ml = modeLine(e);
+      if (ml) box.appendChild(ml);
       var kv = ui.el('dl', { class: 'kv' });
+      // 年の総枠の残りは、値があるときだけ（ふつうの決まりの人・今日の区間が無い人は出さない。計画 第4章）
       [['年度の時間外', prefix(e) + hm(e.yearOvertime) + '（上限 ' + hm(e.yearLimit) + '）'],
-        ['年の総枠まで残り', hm(e.remainingToFrame)], ['実働の合計', hm(e.work)], ['深夜', hm(e.deepNight)], ['法定休日', hm(e.legalHoliday)]]
-        .forEach(function (x) { kv.appendChild(ui.el('dt', { text: x[0] })); kv.appendChild(ui.el('dd', { text: x[1] })); });
+        e.remainingToFrame === null ? null : ['年の総枠まで残り', hm(e.remainingToFrame)], ['実働の合計', hm(e.work)], ['深夜', hm(e.deepNight)], ['法定休日', hm(e.legalHoliday)]]
+        .filter(Boolean).forEach(function (x) { kv.appendChild(ui.el('dt', { text: x[0] })); kv.appendChild(ui.el('dd', { text: x[1] })); });
       box.appendChild(kv);
       e.settlements.forEach(function (s) {
         box.appendChild(ui.el('p', { class: 'sub', text: '清算 ' + s.from.slice(5).replace('-', '/') + '〜' + s.to.slice(5).replace('-', '/') + ': ' +

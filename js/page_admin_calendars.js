@@ -28,6 +28,8 @@
           var lines = c.periods.length ? c.periods.map(function (p) {
             return V.periodName(p) + ': ' + (p.confirmed ? '確定済み' : '下書き') + (p.workDays === null ? '' : '・出勤 ' + p.workDays + '日');
           }) : ['まだ日を入れていません'];
+          if (c.variant === false) lines.unshift('協定なし（法律の目安は 1 日 8 時間・週 40 時間）');
+          if (c.variant === null) lines.unshift('協定の印が読めません。「名前などを直す」で選び直してください');
           ul.appendChild(el('li', {}, [
             el('div', { class: 'item-title' }, [c.name + ' ', c.active ? null : el('span', { class: 'tag off', text: '使っていない' })]),
             el('div', { class: 'sub' }, lines.map(function (t) { return el('div', { text: t }); })),
@@ -64,6 +66,9 @@
         $('cal-order').value = c ? (c.order === null ? '' : c.order) : (list.calendars.length ? Math.max.apply(null, list.calendars.map(function (x) { return x.order || 0; })) + 1 : 1);
         $('cal-active').checked = c ? c.active : true;
         $('active-field').hidden = !c;
+        // 協定の印（計画 stage2-standard-hours-plan.md 第4章）: 新しく足すときは入れておく。読めない（null）ときは空にして知らせる
+        $('cal-variant').checked = c ? c.variant === true : true;
+        $('variant-unknown').hidden = !(c && c.variant === null);
         show('edit-view');
       }
 
@@ -80,9 +85,12 @@
         if (!name || name.length > 30) { ui.fieldError($('cal-name'), 'カレンダーの名前を1〜30文字で入れてください'); bad = true; }
         if (!/^\d+$/.test($('cal-order').value.trim()) || order < 1 || order > 9999) { ui.fieldError($('cal-order'), '表示順を 1〜9999 の数字で入れてください'); bad = true; }
         if (bad) return;
-        var next = { name: name, order: order, active: $('cal-active').checked };
+        var next = { name: name, order: order, active: $('cal-active').checked, variant: $('cal-variant').checked };
+        var base = editing ? { name: editing.name, order: editing.order, active: editing.active, variant: editing.variant } : null;
+        // 前の版のサーバー（variant を返さない）には送らない
+        if (editing && editing.variant === undefined) { delete next.variant; delete base.variant; }
         var args = editing
-          ? { calendarId: editing.calendarId, base: { name: editing.name, order: editing.order, active: editing.active }, next: next }
+          ? { calendarId: editing.calendarId, base: base, next: next }
           : { calendarId: null, base: null, next: next };
         run(function () {
           return save('calendar.admin.saveCalendar', args).then(function (r) {
