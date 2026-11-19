@@ -10,18 +10,20 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=23">
-<script src="js/boot.js?v=23" defer></script>
-<script src="js/sw_register.js?v=23" defer></script>
-<script src="js/config.js?v=23" defer></script>
-<script src="js/store.js?v=23" defer></script>
-<script src="js/ui.js?v=23" defer></script>
-<script src="js/api.js?v=23" defer></script>
-<script src="js/report.js?v=23" defer></script>
-<script src="js/guard.js?v=23" defer></script>
-<script src="gen/calc_task.js?v=23" defer></script>
-<script src="js/remind.js?v=23" defer></script>
-<script src="js/page_home.js?v=23" defer></script>
+<link rel="stylesheet" href="css/style.css?v=25">
+<script src="js/boot.js?v=25" defer></script>
+<script src="js/sw_register.js?v=25" defer></script>
+<script src="js/config.js?v=25" defer></script>
+<script src="js/store.js?v=25" defer></script>
+<script src="js/ui.js?v=25" defer></script>
+<script src="js/api.js?v=25" defer></script>
+<script src="js/report.js?v=25" defer></script>
+<script src="js/guard.js?v=25" defer></script>
+<script src="gen/calc_task.js?v=25" defer></script>
+<script src="js/remind.js?v=25" defer></script>
+<script src="js/portal_text.js?v=25" defer></script>
+<script src="js/leave_view.js?v=25" defer></script>
+<script src="js/page_home.js?v=25" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -29,11 +31,28 @@
 <div id="msg" class="msg error" role="alert" hidden></div>
 <div id="home" hidden>
   <h1>ホーム</h1>
+  <div id="leave-banner" class="msg info leave-banner" hidden></div>
+  <!-- 段階4: 社内ポータル（安否確認・受付・お知らせ・リンク。計画 stage4-board-plan.md 第3-1節）。中身は page_home.js が portal.home の答え（か端末の控え）から作る -->
+  <div id="portal-safety" class="card safety-card" role="alert" hidden></div>
+  <div id="portal-forms" class="card" hidden>
+    <h2>受付</h2>
+    <ul id="form-list" class="list"></ul>
+  </div>
+  <div id="portal-posts" class="card" hidden>
+    <h2>お知らせ</h2>
+    <ul id="post-list" class="list"></ul>
+    <div class="menu"><a class="btn" href="board.html">お知らせをすべて見る</a></div>
+  </div>
+  <div id="portal-links" class="card" hidden>
+    <h2>リンク</h2>
+    <div id="link-list" class="menu cols"></div>
+  </div>
+  <p id="portal-stale" class="sub" hidden>前に開いたときの内容です。新しい内容を読み込んでいます…</p>
   <div class="card">
     <h2>日報</h2>
     <div class="menu"><a class="btn primary" href="report.html">日報を入れる</a></div>
     <div class="menu"><a class="btn" href="share.html">日報を見せる・見せてもらう</a></div>
-    <p class="sub">休暇の申請は準備中です。</p>
+    <div class="menu"><a class="btn" href="leave.html">休暇（休みの申請・残り）</a></div>
   </div>
   <div class="card">
     <h2>タスクリスト</h2>
@@ -48,6 +67,7 @@
     <div class="menu cols">
       <a class="btn" href="devices.html">端末を追加する</a>
       <a class="btn" href="password.html">パスワードを変える</a>
+      <a class="btn" href="my_numbers.html">保険の番号を見る</a>
     </div>
   </div>
   <div id="manager-menu" class="card" hidden>
@@ -69,6 +89,22 @@
       <a class="btn" href="admin_calendars.html">会社カレンダー</a>
       <a class="btn" href="admin_employee_calendar.html">社員ごとの入れ替え</a>
       <a class="btn" href="admin_devices.html">端末とロックの管理</a>
+      <a class="btn" href="admin_pay.html">給与の目安</a>
+      <a class="btn" href="admin_leave.html">休暇の管理</a>
+      <a class="btn" href="admin_leave_start.html">休暇の使い始め</a>
+    </div>
+  </div>
+  <div id="portal-manager-menu" class="card" hidden>
+    <h2>安否確認</h2>
+    <div class="menu"><a class="btn" href="admin_safety.html">部署の安否確認の一覧</a></div>
+  </div>
+  <div id="portal-admin-menu" class="card" hidden>
+    <h2>社内ポータルの管理</h2>
+    <div class="menu cols">
+      <a class="btn" href="admin_board.html">お知らせの管理</a>
+      <a class="btn" href="admin_links.html">リンク集の管理</a>
+      <a class="btn" href="admin_forms.html">受付の管理</a>
+      <a class="btn" href="admin_safety.html">安否確認</a>
     </div>
   </div>
   <p id="app-version" class="sub" hidden></p>

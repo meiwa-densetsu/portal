@@ -8,7 +8,10 @@
   'use strict';
   MP.boot.start(function () {
     var ui = MP.ui, el = ui.el;
+    ui.watchBroken(['page_share.js']); // このファイルから出て誰も拾わなかった例外が出たら「読み込み直す」だけにする（保険）
     var data = null;
+    var receivedSeq = 0; // 見せてもらっている一覧の読み込みの番号（新しい方だけを描く）
+    var broken = false; // 読み込んだ後の描画が例外で止まった（出ている期間と data の期間が食い違うかもしれない）。描画が終わるまでコードを出さない
     var issueSave = MP.api.saver(), cancelSave = MP.api.saver(), useSave = MP.api.saver();
     var today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
 
@@ -17,13 +20,43 @@
       var p = first ? MP.guard.enter({ load: { action: 'share.mine', args: args } })
         : MP.api.call('share.mine', args).then(function (res) { return { res: res }; });
       return p.then(function (r) {
+        if (ui.isBroken()) return; // 「読み込み直す」だけにした後に届いた返事では、画面を描き直さない
         if (!r.res.ok) { ui.pageMessage(r.res.message, 'error'); return; }
         data = r.res.data;
-        ui.$('view').hidden = false;
-        render();
-        return MP.api.call('share.received', {}).then(function (res) {
-          if (res.ok) renderReceived(res.data);
-        });
+        broken = true; // 描画が最後まで終わったら外す
+        // mineToo: 自分のコードの一覧も描く。res: 見せてもらっている一覧の答え（無ければ描かない）
+        var show = function (res, mineToo) {
+          if (ui.isBroken()) return; // 「読み込み直す」だけにした後に届いた返事では、画面を描き直さない
+          try {
+            if (mineToo) { ui.$('view').hidden = false; render(); }
+            if (res && res.ok) renderReceived(res.data);
+          } catch (e) {
+            ui.showBroken(); // 描画が止まったら、画面の中身を隠して「読み込み直す」だけを出す（前の期間の表示や押せる物を残さない）
+            throw e;
+          }
+          if (mineToo) broken = false;
+        };
+        // 見せてもらっている一覧の読み込みには番号を付け、後から始めた読み込みがあれば、古い返事は使わない（最初の表示の遅い返事が、期間を移って描いた一覧を上書きしない）
+        var received = function (mineToo) {
+          var my = ++receivedSeq;
+          return MP.api.call('share.received', {}).then(function (res) {
+            if (my !== receivedSeq) { if (mineToo) show(null, true); return; }
+            show(res, mineToo);
+          }, function (e) {
+            if (my !== receivedSeq) { if (mineToo) show(null, true); return; } // 古い読み込みの失敗は、新しい方に任せる
+            show(null, mineToo);
+            throw e;
+          });
+        };
+        if (first) {
+          // 最初の表示: 自分のコードの一覧を先に出し、見せてもらっている一覧は返事が来てから足す（返事が遅くても、コードを出す・取り消すを待たせない。
+          // ui.run の外なので、先に出した「取り消す」もすぐ押せる）
+          show(null, true);
+          received(false).then(null, function (e) { ui.showBroken(); throw e; });
+          return;
+        }
+        // 期間を移るとき（ui.run の中）: 見せてもらっている一覧も読んでから、まとめて出す（先に出すと、作り直した「取り消す」が読み込みの途中に押せて、送信中のため何も起きない）
+        return received(true);
       });
     }
 
@@ -40,7 +73,7 @@
           el('div', { class: 'item-title', text: ui.fmtDate(c.from) + '〜' + ui.fmtDate(c.to) }),
           el('div', { class: 'sub', text: state + (c.allowCopy ? '・写すのを許す' : '') }),
           el('div', { class: 'sub', text: c.viewers.length ? '見た人: ' + c.viewers.join('・') : 'まだ誰も見ていません' }),
-          c.alive ? el('div', { class: 'item-actions' }, [el('button', { type: 'button', class: 'btn', text: '取り消す', on: { click: function () { cancel(c); } } })]) : null,
+          c.alive ? el('div', { class: 'item-actions' }, [el('button', { type: 'button', class: 'btn', text: '取り消す', on: { click: ui.drawing(function () { cancel(c); }) } })]) : null,
         ]));
       });
     }
@@ -58,11 +91,23 @@
       });
     }
 
+    /** 描画が止まった後は「コードを出す」を押せなくする。ui.run が戻した後に呼ぶ（描画が終わっていれば押せる形に戻す。ほかに止める所は無い） */
+    function lockBroken() { ui.$('issue').disabled = broken; }
+
+    /** ui.run の後に lockBroken を呼ぶ（動かなかったときは何もしない） */
+    function runThen(fn) {
+      var started = false;
+      var after = function () { if (started) lockBroken(); };
+      return ui.run(function () { started = true; return fn(); }).then(ui.drawing(function (v) { after(); return v; }), ui.drawing(function (e) { after(); throw e; })); // ui.run の後の決め直しも包む
+    }
+
     function issue() {
+      if (broken) return; // 描画が止まった後（出ている期間と食い違うかもしれない）
       var p = data.period;
       var args = { from: p.from, to: p.to, allowCopy: ui.$('allow-copy').checked };
-      ui.run(function () {
+      runThen(function () {
         return issueSave('share.issue', args).then(function (res) {
+          if (ui.isBroken()) return; // 「読み込み直す」だけにした後に届いた返事では、描き直さない
           if (!res.ok) { ui.pageMessage(res.message, 'error'); return; }
           var box = ui.$('code-box');
           box.hidden = false;
@@ -79,16 +124,17 @@
     }
 
     function cancel(c) {
-      ui.confirm('コードを取り消す', '取り消すと、見ている人も見られなくなります。', '取り消す', 'danger').then(function (ok) {
+      ui.confirm('コードを取り消す', '取り消すと、見ている人も見られなくなります。', '取り消す', 'danger').then(ui.drawing(function (ok) {
         if (!ok) return;
-        ui.run(function () {
+        runThen(function () {
           return cancelSave('share.cancel', { codeRef: c.codeRef }).then(function (res) {
+            if (ui.isBroken()) return; // 「読み込み直す」だけにした後に届いた返事では、描き直さない
             if (!res.ok) { ui.pageMessage(res.message, 'error'); return; }
             ui.pageMessage('取り消しました', 'ok');
             return load(data.period.from);
           });
         });
-      });
+      }));
     }
 
     function use(ev) {
@@ -106,10 +152,17 @@
       });
     }
 
-    ui.$('prev').addEventListener('click', function () { ui.run(function () { return load(data.prevDate); }); });
-    ui.$('next').addEventListener('click', function () { if (data.nextDate) ui.run(function () { return load(data.nextDate); }); });
-    ui.$('issue').addEventListener('click', issue);
-    ui.$('use-form').addEventListener('submit', use);
-    return load(today, true);
+    /** 期間を移る。ui.run は終わるとボタンを押せる形に戻すので、「次」は終わった後に決め直す（給与の目安・法律の時間外の画面と同じ） */
+    function move(date) {
+      var started = false;
+      var again = function () { if (started && data) ui.$('next').disabled = !data.nextDate; if (started) lockBroken(); };
+      ui.run(function () { started = true; return load(date); }).then(ui.drawing(again), ui.drawing(function (e) { again(); throw e; })); // ui.run の後の決め直しも包む
+    }
+    // 押したときの処理は、すべて ui.drawing で包む（途中で止まったら「読み込み直す」だけにする）
+    ui.$('prev').addEventListener('click', ui.drawing(function () { move(data.prevDate); }));
+    ui.$('next').addEventListener('click', ui.drawing(function () { if (data.nextDate) move(data.nextDate); }));
+    ui.$('issue').addEventListener('click', ui.drawing(issue));
+    ui.$('use-form').addEventListener('submit', ui.drawing(use));
+    return load(today, true).then(null, function (e) { lockBroken(); throw e; });
   });
 })();

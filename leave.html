@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>休暇｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=25">
+<script src="js/boot.js?v=25" defer></script>
+<script src="js/sw_register.js?v=25" defer></script>
+<script src="js/config.js?v=25" defer></script>
+<script src="js/store.js?v=25" defer></script>
+<script src="js/ui.js?v=25" defer></script>
+<script src="js/api.js?v=25" defer></script>
+<script src="js/report.js?v=25" defer></script>
+<script src="js/guard.js?v=25" defer></script>
+<script src="gen/calc_task.js?v=25" defer></script>
+<script src="js/remind.js?v=25" defer></script>
+<script src="js/leave_view.js?v=25" defer></script>
+<script src="js/page_leave.js?v=25" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1 id="title">休暇</h1>
+  <p class="sub">休暇の残りは目安です。正式な記録は管理者が確かめます。</p>
+  <p id="viewonly-note" class="msg info" hidden>社員の画面を見ている間は、見るだけです（申請・直す・取り消すはできません）。</p>
+  <div id="notready" class="card" hidden>
+    <p>休暇は管理者が準備中です。準備が済むと、ここから休みを申請できます。</p>
+  </div>
+
+  <section id="balance" class="card" aria-labelledby="balance-h" hidden>
+    <h2 id="balance-h">残り</h2>
+    <dl class="kv leave-kv" id="balance-list"></dl>
+    <div id="warn-list"></div>
+  </section>
+
+  <div class="leave-cols" id="cols" hidden>
+    <section id="form-card" class="card" aria-labelledby="form-h">
+      <h2 id="form-h">休みを申請する</h2>
+      <p id="edit-note" class="msg info" hidden></p>
+      <div class="field" id="kind-field" hidden>
+        <label for="kind">種類</label>
+        <select id="kind"></select>
+      </div>
+      <div class="field" id="date-field">
+        <label for="date-from">日付</label>
+        <input type="date" id="date-from">
+      </div>
+      <div class="field" id="date-to-field">
+        <label for="date-to">何日か続けて休むとき（この日まで。会社の休みの日は除きます）</label>
+        <input type="date" id="date-to">
+      </div>
+      <p id="dates-chosen" class="sub" hidden></p>
+      <div class="field">
+        <label for="unit">単位</label>
+        <select id="unit">
+          <option value="day">1日</option>
+          <option value="half">半日（時刻も選ぶ）</option>
+          <option value="hour">時間（30分ごと）</option>
+        </select>
+      </div>
+      <div class="row" id="time-fields" hidden>
+        <div class="field"><label for="from">始め</label><select id="from"></select></div>
+        <div class="field"><label for="to">終わり</label><select id="to"></select></div>
+      </div>
+      <p class="sub" id="lunch-note" hidden>昼休み（12:00〜13:00）にかかる時間は数えません。</p>
+      <div class="field">
+        <label for="note">メモ（任意・30字まで）</label>
+        <input type="text" id="note" maxlength="30" autocomplete="off">
+      </div>
+      <div class="menu cols">
+        <button type="button" id="preview" class="btn">下見する</button>
+        <button type="button" id="send" class="btn primary" disabled>送る</button>
+      </div>
+      <div class="menu">
+        <button type="button" id="recommend" class="btn">有給推奨日をまとめて申請</button>
+        <button type="button" id="reset" class="btn" hidden>直すのをやめる</button>
+      </div>
+      <div id="preview-box" class="subbox" hidden aria-live="polite"></div>
+    </section>
+
+    <section id="list-card" class="card" aria-labelledby="list-h">
+      <h2 id="list-h">申請の一覧</h2>
+      <p class="sub">前の締めの期間から先の日まで。締めた日は直せません（管理者は直せます）。</p>
+      <ul id="list" class="list"></ul>
+    </section>
+  </div>
+  <a class="btn block" href="report.html">日報へ</a>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

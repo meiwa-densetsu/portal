@@ -28,6 +28,8 @@
   function jpDate(date) { return Number(date.slice(0, 4)) + '年' + Number(date.slice(5, 7)) + '月' + Number(date.slice(8, 10)) + '日'; }
   function jpMd(date) { return Number(date.slice(5, 7)) + '月' + Number(date.slice(8, 10)) + '日'; }
   function str(v) { return v === null || v === undefined ? '' : String(v); }
+  // 休暇（段階2。計画 stage2-leave-plan.md 第9章）の文の作り方。画面では先に読み込んだ leave_view.js、Node の試験では require
+  var LV = root && root.MP && root.MP.leaveView ? root.MP.leaveView : (typeof require === 'function' ? require('./leave_view.js') : null);
 
   /**
    * 1人分のシートの形。
@@ -69,9 +71,15 @@
       var center = kind ? 'center_' + kind : 'center';
       put(r, COL.date, md(d.date), center);
       put(r, COL.dow, DOW[d.dow], center);
+      // 1日の休みの日は、昼の施工内容に「有給」など（日報に施工内容があれば、それは備考の行に回す。計画 第9章）
+      var leaveContent = d.inHistory && LV ? LV.dayContent(d.leave) : '';
       [['day', COL.day], ['night', COL.night]].forEach(function (s) {
         var e = d.inHistory && d[s[0]] ? d[s[0]] : {};
-        SLOT_COLS.forEach(function (k, i) { put(r, s[1] + i, d.inHistory ? str(e[k]) : '', i < 5 ? center : style); });
+        SLOT_COLS.forEach(function (k, i) {
+          var v = d.inHistory ? str(e[k]) : '';
+          if (leaveContent && s[0] === 'day' && k === '施工内容') v = leaveContent;
+          put(r, s[1] + i, v, i < 5 ? center : style);
+        });
       });
       put(r, COL.dept, d.inHistory ? str(d.department) : '', center);
       r++;
@@ -94,8 +102,16 @@
     // 備考（備考のある日だけ「M月D日 内容」。左の列を上から埋め、次に右の列）
     r += 2;
     put(r, 1, '備考', 'head'); merge(r, 1, r, LAST_COL);
-    var notes = o.days.filter(function (d) { return d.inHistory && str(d.note) !== ''; })
-      .map(function (d) { return jpMd(d.date) + ' ' + str(d.note); });
+    // 日報の備考と、休暇の自動の文（半日・時間の休み・足りない時間。本人の備考とは別の行）を日付の順に
+    var notes = [];
+    o.days.forEach(function (d) {
+      if (!d.inHistory) return;
+      if (str(d.note) !== '') notes.push(jpMd(d.date) + ' ' + str(d.note));
+      if (!LV) return;
+      var moved = LV.dayContent(d.leave) && d.day ? str(d.day['施工内容']) : '';
+      if (moved) notes.push(jpMd(d.date) + ' ' + moved);
+      LV.noteText(d.date, d.leave, d.leaveAuto).forEach(function (t) { notes.push(t); });
+    });
     var lines = Math.max(1, Math.ceil(notes.length / 2));
     for (var i = 0; i < lines; i++) {
       var nr = r + 1 + i;

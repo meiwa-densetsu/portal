@@ -17,7 +17,7 @@
 
     /** ui.run と同じ。社員の選択とチェックも止める（読み込みの途中に選び直すと、選んだ社員と出ている履歴が食い違うため） */
     function run(fn) {
-      var ctl = [ui.$('emp-select'), ui.$('show-all')];
+      var ctl = [ui.$('emp-select'), ui.$('show-all'), ui.$('show-leave')];
       busy++;
       ctl.forEach(function (c) { c.disabled = true; });
       var end = function () { if (--busy === 0) ctl.forEach(function (c) { c.disabled = false; }); };
@@ -26,6 +26,7 @@
 
     function load(first) {
       var args = { employeeId: employeeId, periodId: periodId, showAll: ui.$('show-all').checked };
+      if (ui.$('show-leave').checked) args.target = '休暇'; // 休暇（段階2）の修正履歴
       var p = first ? MP.guard.enter({ admin: true, load: { action: 'report.admin.changes', args: args } })
         : MP.api.call('report.admin.changes', args).then(function (res) { return { res: res }; });
       return p.then(function (r) {
@@ -45,10 +46,12 @@
       ui.$('empty').hidden = data.items.length > 0;
       var ul = ui.clear(ui.$('list'));
       data.items.forEach(function (it) {
-        var lines = it.changes === null ? [ui.el('div', { class: 'sub', text: '（読めない値）' })]
+        // 休暇の行は 1 行の文にする（MP.leaveView.changeText。自動の変化は「（自動）」）
+        var lines = it.target ? [ui.el('div', { class: 'sub', text: MP.leaveView.changeText(it.target, it.beforeRaw, it.afterRaw) })]
+          : it.changes === null ? [ui.el('div', { class: 'sub', text: '（読めない値）' })]
           : it.changes.map(function (c) { return ui.el('div', { class: 'sub', text: c.col + ': ' + (c.before === '' ? '（空）' : c.before) + ' → ' + (c.after === '' ? '（空）' : c.after) }); });
         ul.appendChild(ui.el('li', {}, [
-          ui.el('div', { class: 'item-title', text: it.date + ' の' + it.item }),
+          ui.el('div', { class: 'item-title', text: it.date + ' の' + (it.target ? it.target : it.item) }),
           ui.el('div', {}, [it.state !== '反映済み' ? ui.el('span', { class: 'tag warn', text: it.state }) : null, ' ' + it.at + '・' + it.by]),
         ].concat(lines)));
       });
@@ -65,6 +68,7 @@
     ui.$('next').addEventListener('click', function () { shift(1); });
     ui.$('emp-select').addEventListener('change', function (ev) { employeeId = ev.target.value; run(function () { return load(); }); });
     ui.$('show-all').addEventListener('change', function () { run(function () { return load(); }); });
+    ui.$('show-leave').addEventListener('change', function () { run(function () { return load(); }); });
 
     // 初めは自分（管理者）と今の期間。社員は画面で選ぶ。?employee= で開くこともできる
     return MP.guard.enter({ admin: true }).then(function (me) {

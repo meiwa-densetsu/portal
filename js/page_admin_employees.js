@@ -51,6 +51,40 @@
       }
       function minutesText(n) { return n === null ? '—' : Math.floor(n / 60) + '時間' + (n % 60 ? (n % 60) + '分' : ''); }
 
+      // ---------------- 保険の番号・給与の固定の項目（計画 stage2-employee-fields-plan.md 3-1） ----------------
+      // 項目はサーバーの答え（options.payItems・insuranceItems）から出す。payItems が無い答え（1 つ前のサーバー）なら、欄を出さず、送りもしない
+
+      /** 給与の固定の項目の一覧（無ければ null） */
+      function payItems() { return data.options && Array.isArray(data.options.payItems) ? data.options.payItems : null; }
+      /** 保険の番号の一覧（給与の項目が無い答えでは出さない。無ければ null） */
+      function insItems() { return payItems() && Array.isArray(data.options.insuranceItems) ? data.options.insuranceItems : null; }
+      /** 確定拠出年金の上限（設定の値。無ければ null） */
+      function dcLimit() { var n = data.options && data.options.dcLimitYen; return typeof n === 'number' && isFinite(n) ? n : null; }
+      var INS_HINTS = {
+        healthInsuranceNo: '保険証の記号と番号（例: 1234567-12）',
+        pensionNo: '年金手帳・基礎年金番号通知書の 10 けた（ハイフンは無くてよい）',
+        employmentInsuranceNo: '雇用保険被保険者証の 11 けた',
+      };
+      /** 3 けたごとにカンマ */
+      function yen(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+      /** 給与の項目の 1 つの値を見せる文字（null は「—」・読めない値はそのまま添える） */
+      function payText(item, v) {
+        if (v === null || v === undefined) return '—';
+        if (typeof v !== 'number') return '読めない値（' + String(v) + '）';
+        return item.unit === 'minutes' ? minutesText(v) : yen(v) + ' 円';
+      }
+      /** 入れた値の数（読めない値も「入っている」に数える） */
+      function payCount(h) {
+        var items = payItems() || [];
+        return items.filter(function (i) { return h.pay && h.pay[i.key] !== null && h.pay[i.key] !== undefined; }).length;
+      }
+      /** 全角を半角に（使えない端末では、そのまま） */
+      function nfkc(s) { try { return String(s).normalize('NFKC'); } catch (x) { return String(s); } }
+      /** サーバーの BAD_REQUEST の文が、どの項目のものか（文の頭が項目の名前） */
+      function itemOfMessage(items, message) {
+        return (items || []).filter(function (i) { return String(message || '').indexOf(i.label) === 0; })[0] || null;
+      }
+
       // ---------------- 入力の部品 ----------------
 
       function selectOf(id, label, values, texts) {
@@ -98,19 +132,37 @@
 
       var thisYear = new Date().getFullYear();
 
-      /** 基本の項目（名前・表示順・入社日・生年月日） */
+      /** 基本の項目（名前・表示順・入社日・生年月日。答えに insuranceItems があれば保険の番号 3 つも） */
       function basicCtl(container, p) {
         var name = el('input', { type: 'text', id: p + '-name', maxlength: '60', autocomplete: 'off' });
         var order = el('input', { type: 'text', id: p + '-order', inputmode: 'numeric', maxlength: '4', autocomplete: 'off' });
         var join = dateCtl(p + '-join', '入社日', 1980, thisYear + 2, false);
         var birth = dateCtl(p + '-birth', '生年月日', 1940, thisYear, false);
+        var ins = insItems();
+        var insInputs = {};
         ui.clear(container);
         container.appendChild(field('名前', name.id, name, 'ログインの画面の一覧に出ます。同じ名前の人がいるときは「佐藤（工事）」のように区別してください（30文字まで）'));
         container.appendChild(field('表示順', order.id, order, '一覧に並ぶ順番です（1〜9999。小さいほうが上）'));
         container.appendChild(join.node);
         container.appendChild(birth.node);
+        // 保険の番号（管理者と本人だけが見ます）。年金・雇用保険は数字だけ打てば通る（iPhone の数字のキーにはハイフンが無い。ハイフンはサーバーが付ける）
+        (ins || []).forEach(function (i) {
+          var input = el('input', { type: 'text', id: p + '-ins-' + i.key, inputmode: i.key === 'healthInsuranceNo' ? 'text' : 'numeric', maxlength: '40', autocomplete: 'off' });
+          insInputs[i.key] = input;
+          container.appendChild(field(i.label, input.id, input, (INS_HINTS[i.key] || '') + '。空は「未登録」です'));
+        });
         return {
-          set: function (v) { name.value = v.name; order.value = v.order === null ? '' : v.order; join.set(v.joinDate); birth.set(v.birthDate); },
+          /** サーバーの誤りの文を、その番号の欄の下に出す（出せたら true） */
+          showError: function (message) {
+            var i = itemOfMessage(ins, message);
+            if (!i) return false;
+            ui.fieldError(insInputs[i.key], message);
+            return true;
+          },
+          set: function (v) {
+            name.value = v.name; order.value = v.order === null ? '' : v.order; join.set(v.joinDate); birth.set(v.birthDate);
+            (ins || []).forEach(function (i) { insInputs[i.key].value = v.insurance && v.insurance[i.key] ? v.insurance[i.key] : ''; });
+          },
           get: function () {
             var ok = true;
             var n = name.value.trim();
@@ -119,9 +171,132 @@
             var j = join.get(), b = birth.get();
             if (!j.ok) { ui.fieldError(join.row, '入社日を、年・月・日の3つとも正しく選んでください'); ok = false; }
             if (!b.ok) { ui.fieldError(birth.row, '生年月日を、年・月・日の3つとも正しく選んでください'); ok = false; }
-            return ok ? { name: n, order: Number(order.value), joinDate: j.value, birthDate: b.value } : null;
+            if (!ok) return null;
+            var out = { name: n, order: Number(order.value), joinDate: j.value, birthDate: b.value };
+            // 番号の形はサーバーが確かめる（決まりを画面に写さない）。前後の空白だけ除く
+            (ins || []).forEach(function (i) { out[i.key] = insInputs[i.key].value.trim(); });
+            return out;
           },
         };
+      }
+
+      /**
+       * 給与の固定の項目の囲み（答えに payItems があるときだけ）。
+       * 金額は 1 つずつの欄（カンマ・全角で打っても読める。空 = 未入力）。含み残業時間は時間と分の 2 つの欄。
+       * シートの値が読めない（「25万」など）項目は、その文字を欄に入れておき、触らなければ「今のまま」（{ keep: true }）で送る（計画 10-5）
+       */
+      function payCtl(container, p) {
+        var items = payItems();
+        if (!items) return null;
+        var box = el('div', { class: 'subbox', id: p + '-pay' }, [el('h3', { text: '給与の固定の項目（管理者だけが見ます）' }),
+          el('p', { class: 'sub', text: '給与明細と同じ金額を入れます。空は「未入力」です（0 円とは別）。' })]);
+        var ctl = {}; // key → { input | hours, mins, note, raw }
+        items.forEach(function (i) {
+          var id = p + '-pay-' + i.key;
+          var note = el('p', { class: 'hint pay-unreadable', id: id + '-note', hidden: true });
+          if (i.unit === 'minutes') {
+            var hours = el('input', { type: 'text', id: id + '-h', inputmode: 'numeric', autocomplete: 'off', 'aria-label': i.label + '（時間）' });
+            var mins = el('input', { type: 'text', id: id + '-m', inputmode: 'numeric', maxlength: '2', autocomplete: 'off', 'aria-label': i.label + '（分）' });
+            var row = el('div', { class: 'row', id: id }, [hours, mins]);
+            ctl[i.key] = { hours: hours, mins: mins, row: row, note: note, raw: null };
+            var f = field(i.label + '（左に時間、右に分）', '', row, '例: 30時間なら「30」と「0」。空は「未入力」');
+            f.appendChild(note);
+            box.appendChild(f);
+            return;
+          }
+          var input = el('input', { type: 'text', id: id, inputmode: 'numeric', autocomplete: 'off' });
+          ctl[i.key] = { input: input, note: note, raw: null };
+          var hint = i.key === 'basePay' ? '日給制の人は日給を入れます' : '';
+          if (i.key === 'lifePlanPrepay' && dcLimit() !== null) {
+            hint = '確定拠出年金の上限 ' + yen(dcLimit()) + ' 円（設定の値）。超えると注意を出します（保存はできます）。設定を変えてから、効くまで数時間かかることがあります';
+          }
+          var fl = field(i.label + '（円）', id, input, hint);
+          fl.appendChild(note);
+          box.appendChild(fl);
+        });
+        container.appendChild(box);
+
+        function setNote(c, raw) {
+          c.raw = raw;
+          c.note.textContent = raw === null ? '' : '読めない値: ' + raw + '（直すときは数字で入れてください）';
+          c.note.hidden = raw === null;
+        }
+        return {
+          /** h … 元にする行（無ければ空） */
+          set: function (h) {
+            items.forEach(function (i) {
+              var v = h && h.pay ? h.pay[i.key] : null;
+              if (v === undefined) v = null;
+              var c = ctl[i.key];
+              var raw = v !== null && typeof v !== 'number' ? String(v) : null;
+              setNote(c, raw);
+              if (i.unit === 'minutes') {
+                c.hours.value = raw !== null ? raw : v === null ? '' : String(Math.floor(v / 60));
+                c.mins.value = raw !== null || v === null ? '' : String(v % 60);
+              } else {
+                c.input.value = raw !== null ? raw : v === null ? '' : String(v);
+              }
+            });
+          },
+          /** サーバーの誤りの文を、その項目の欄の下に出す（出せたら true） */
+          showError: function (message) {
+            var i = itemOfMessage(items, message);
+            if (!i) return false;
+            ui.fieldError(ctl[i.key].input || ctl[i.key].row, message);
+            return true;
+          },
+          /** { key: null | 整数 | { keep: true } }。形が違えば欄の下に出して null */
+          get: function () {
+            var ok = true, out = {};
+            items.forEach(function (i) {
+              var c = ctl[i.key];
+              if (i.unit === 'minutes') {
+                if (c.raw !== null && c.hours.value === c.raw && c.mins.value === '') { out[i.key] = { keep: true }; return; }
+                var hv = nfkc(c.hours.value).trim(), mv = nfkc(c.mins.value).trim();
+                if (hv === '' && mv === '') { out[i.key] = null; return; }
+                if (hv === '') hv = '0';
+                if (mv === '') mv = '0';
+                if (!/^\d{1,4}$/.test(hv) || !/^\d{1,2}$/.test(mv) || Number(mv) > 59) {
+                  ui.fieldError(c.row, i.label + 'を、時間と分（0〜59）の数字で入れてください');
+                  ok = false;
+                  return;
+                }
+                out[i.key] = Number(hv) * 60 + Number(mv);
+                return;
+              }
+              if (c.raw !== null && c.input.value === c.raw) { out[i.key] = { keep: true }; return; }
+              // カンマは 3 けたごとの位置だけ受け付ける（「250,00」「2,5」「,」を別の金額・空に変えない。Excel の読み込みの parseYen と同じ決まり）
+              var s = nfkc(c.input.value).trim();
+              if (s === '') { out[i.key] = null; return; }
+              s = s.replace(/\s*円$/, '');
+              if (!/^(\d+|\d{1,3}(,\d{3})+)$/.test(s)) s = 'x'; // 形が違えば、下で誤りにする
+              s = s.replace(/,/g, '');
+              if (!/^\d{1,9}$/.test(s)) {
+                ui.fieldError(c.input, i.label + 'は 0 以上の整数（円）で入れてください');
+                ok = false;
+                return;
+              }
+              out[i.key] = Number(s);
+            });
+            return ok ? out : null;
+          },
+        };
+      }
+
+      /** 生涯設計前払金が確定拠出年金の上限を超えていたら、保存の前に確かめる（保存は止めない。計画 1-4・3-1）。進めてよければ true */
+      function confirmDc(pay) {
+        var v = pay ? pay.lifePlanPrepay : null;
+        var lim = dcLimit();
+        if (typeof v !== 'number' || lim === null || v <= lim) return Promise.resolve(true);
+        return ui.confirm('生涯設計前払金が上限を超えています',
+          '生涯設計前払金 ' + yen(v) + ' 円は、確定拠出年金の上限 ' + yen(lim) + ' 円（設定の値）を超えています。このまま保存しますか？', '保存する');
+      }
+
+      /** 同時に直したときの「入力していた内容」に並べる給与の行 */
+      function payLines(pay) {
+        if (!pay) return [];
+        return (payItems() || []).filter(function (i) { return pay[i.key] !== null && !(pay[i.key] && pay[i.key].keep); })
+          .map(function (i) { return i.label + ': ' + payText(i, pay[i.key]); });
       }
 
       /**
@@ -145,6 +320,7 @@
         container.appendChild(viewField);
         container.appendChild(field('雇用区分', emp.id, emp));
         container.appendChild(field('1日の所定労働時間（左に時間、右に分）', '', timeRow, '例: 8時間なら「8」と「0」、7時間30分なら「7」と「30」'));
+        var pay = payCtl(container, p); // 答えに payItems が無ければ null（囲みを出さない・送らない）
         role.addEventListener('change', function () { viewField.hidden = role.value !== ROLE_MANAGER; });
 
         function fillDepts(h) {
@@ -172,8 +348,14 @@
             var n = h && h.dailyMinutes !== null ? h.dailyMinutes : 480;
             hours.value = Math.floor(n / 60); mins.value = n % 60;
             viewField.hidden = role.value !== ROLE_MANAGER;
+            if (pay) pay.set(h); // 「変更を足す」は今の内容の 13 個を写す。「直す」はその行の値
           },
           sinceRow: since.row,
+          /** 給与の囲みがあるか */
+          hasPay: !!pay,
+          /** 給与の 13 個（囲みが無ければ null。形が違えば欄の下に出して false） */
+          getPay: function () { if (!pay) return null; var v = pay.get(); return v || false; },
+          showError: function (message) { return !!pay && pay.showError(message); },
           get: function () {
             var ok = true;
             var s = since.get();
@@ -192,9 +374,7 @@
         };
       }
 
-      var basic = basicCtl($('basic-fields'), 'b');
-      var addBasic = basicCtl($('add-basic'), 'a');
-      var hist, addHist; // 部署・選択肢を読み込んだ後に作る
+      var basic, addBasic, hist, addHist; // 部署・選択肢（保険の番号・給与の項目も）を読み込んだ後に作る
 
       // ---------------- 一覧 ----------------
 
@@ -235,6 +415,8 @@
       function apply(r) {
         if (!r.ok) { ui.pageMessage(r.message, 'error'); return false; }
         data = r.data;
+        basic = basicCtl($('basic-fields'), 'b');
+        addBasic = basicCtl($('add-basic'), 'a');
         hist = histCtl($('hist-fields'), 'h');
         addHist = histCtl($('add-hist'), 'ah');
         renderList();
@@ -287,12 +469,26 @@
         var now = ui.clear($('current'));
         now.appendChild(cur ? el('p', { text: histLine(cur) }) : el('p', { class: 'sub', text: '今日の時点で有効な内容はありません' }));
 
+        // 給与の固定の項目（今の内容）。今の「今の内容」（#current）の文は変えずに、別の囲みに出す
+        var items = payItems();
+        $('pay-card').hidden = !items;
+        var payNow = ui.clear($('pay-current'));
+        if (items && cur) {
+          payNow.appendChild(el('dl', { class: 'kv' }, items.reduce(function (out, i) {
+            var v = cur.pay ? cur.pay[i.key] : null;
+            return out.concat([el('dt', { text: i.label }), el('dd', { text: payText(i, v), 'data-key': i.key })]);
+          }, [])));
+        } else if (items) {
+          payNow.appendChild(el('p', { class: 'sub', text: '今日の時点で有効な内容はありません' }));
+        }
+
         var list = ui.clear($('hist-list'));
         e.history.slice().reverse().forEach(function (h) {
           list.appendChild(el('li', {}, [
             el('div', { class: 'item-title' }, [ui.fmtDate(h.since) + ' から ',
               h.since > data.today ? el('span', { class: 'tag warn', text: 'これから' }) : h === cur ? el('span', { class: 'tag ok', text: '今' }) : null]),
             el('div', { text: histLine(h) }),
+            items ? el('div', { class: 'sub pay-count', text: '給与の項目: ' + items.length + ' 中 ' + payCount(h) + ' 入力' }) : null,
             el('div', { class: 'item-actions' }, [el('button', { type: 'button', class: 'btn', text: '直す', on: { click: function () { openHist(h); } } })]),
           ]));
         });
@@ -434,12 +630,21 @@
         var e = findEmp(currentId);
         var next = basic.get();
         if (!next) return;
-        var args = { employeeId: e.employeeId, base: { name: e.name, order: e.order, joinDate: e.joinDate, birthDate: e.birthDate }, next: next };
+        var base = { name: e.name, order: e.order, joinDate: e.joinDate, birthDate: e.birthDate };
+        // 保険の番号: base に今の 3 つ、next に入れた 3 つ（答えに番号が無ければ、どちらにも入れない＝サーバーはその列に触らない）
+        var ins = insItems() && e.insurance ? insItems() : null;
+        if (ins) ins.forEach(function (i) { base[i.key] = e.insurance[i.key] || ''; });
+        else (insItems() || []).forEach(function (i) { delete next[i.key]; });
+        var args = { employeeId: e.employeeId, base: base, next: next };
         ui.run(function () {
           return save('master.admin.updateEmployee', args).then(function (r) {
             if (r.ok) return reload('保存しました');
-            if (r.code === 'CONFLICT') return conflict(['名前: ' + next.name, '表示順: ' + next.order, '入社日: ' + (next.joinDate || '—'), '生年月日: ' + (next.birthDate || '—')]);
+            if (r.code === 'CONFLICT') {
+              return conflict(['名前: ' + next.name, '表示順: ' + next.order, '入社日: ' + (next.joinDate || '—'), '生年月日: ' + (next.birthDate || '—')]
+                .concat((ins || []).map(function (i) { return i.label + ': ' + (next[i.key] || '—'); })));
+            }
             if (r.code === 'DUPLICATE_NAME') ui.fieldError($('b-name'), r.message);
+            else if (r.code === 'BAD_REQUEST' && basic.showError(r.message)) return;
             else ui.pageMessage(r.message, 'error');
           });
         });
@@ -454,8 +659,10 @@
         ui.clearFieldErrors($('hist-view'));
         $('hist-title').textContent = e.name + ' さん: ' + (h ? ui.fmtDate(h.since) + ' からの内容を直す' : '変更を足す');
         $('hist-lead').textContent = h
-          ? 'まちがいを直すときに使います。これからの変更（異動・権限の変更など）は、戻って「変更を足す」を使ってください。'
-          : '「いつから」の日付から、下の内容に変わります。今の内容を写してあるので、変わる所だけ直してください。';
+          ? 'まちがいを直すときに使います。これからの変更（異動・権限の変更など）は、戻って「変更を足す」を使ってください。' +
+            (payItems() ? 'この行だけが変わります（後の行の金額は変わりません）。' : '')
+          : '「いつから」の日付から、下の内容に変わります。今の内容を写してあるので、変わる所だけ直してください。' +
+            (payItems() ? '給与の金額も今の内容を写してあります。' : '');
         hist.set(h || effective(e) || e.history[e.history.length - 1] || null, h ? h.since : data.today);
         show('hist-view');
       }
@@ -469,23 +676,33 @@
         ui.clearFieldErrors($('hist-view'));
         var e = findEmp(currentId);
         var next = hist.get();
-        if (!next) return;
+        var pay = hist.getPay();
+        if (!next || pay === false) return;
         if (e.history.some(function (h) { return h !== histBase && h.since === next.since; })) {
           ui.fieldError(hist.sinceRow, 'この日付からの内容は、もう登録されています。戻って、その行の「直す」から直してください');
           return;
         }
-        // base は一覧の行から、休憩方式・カレンダー（部署の値。社員の保存では使わない）を除いて送る
+        // 直す行に給与の値が無い（答えの形が違う）ときは、給与を送らない（base と next の片方だけにならないように）
+        if (histBase && !histBase.pay) pay = null;
+        // base は一覧の行から、休憩方式・カレンダー（部署の値。社員の保存では使わない）と、給与の見せる形（pay）を除いて送る。
+        // 給与は平らな鍵で、一覧で受け取った値をそのまま（読めない値の文字も。照合が合うように）
         var base = null;
         if (histBase) {
           base = {};
-          Object.keys(histBase).forEach(function (k) { if (k !== 'breakType' && k !== 'calendarId') base[k] = histBase[k]; });
+          Object.keys(histBase).forEach(function (k) { if (k !== 'breakType' && k !== 'calendarId' && k !== 'pay') base[k] = histBase[k]; });
+          if (pay) payItems().forEach(function (i) { var v = histBase.pay[i.key]; base[i.key] = v === undefined ? null : v; });
         }
+        if (pay) Object.keys(pay).forEach(function (k) { next[k] = pay[k]; });
         var args = { employeeId: e.employeeId, baseSince: histBase ? histBase.since : null, base: base, next: next };
-        ui.run(function () {
-          return save('master.admin.saveHistory', args).then(function (r) {
-            if (r.ok) return reload('保存しました');
-            if (r.code === 'CONFLICT') return conflict([ui.fmtDate(next.since) + ' から', histLine(next)]);
-            ui.pageMessage(r.message, 'error');
+        confirmDc(pay).then(function (go) {
+          if (!go) return;
+          ui.run(function () {
+            return save('master.admin.saveHistory', args).then(function (r) {
+              if (r.ok) return reload('保存しました');
+              if (r.code === 'CONFLICT') return conflict([ui.fmtDate(next.since) + ' から', histLine(next)].concat(payLines(pay)));
+              if (r.code === 'BAD_REQUEST' && hist.showError(r.message)) return;
+              ui.pageMessage(r.message, 'error');
+            });
           });
         });
       });
@@ -506,17 +723,23 @@
         ev.preventDefault();
         ui.pageMessage('');
         ui.clearFieldErrors($('add-view'));
-        var b = addBasic.get(), h = addHist.get();
-        if (!b || !h) return;
-        var args = { name: b.name, order: b.order, joinDate: b.joinDate, birthDate: b.birthDate, history: h };
-        ui.run(function () {
-          return save('master.admin.addEmployee', args).then(function (r) {
-            if (r.ok) {
-              currentId = r.data.employeeId;
-              return reload('追加しました。まだログインできません。下の「招待リンクを出す」を押して、本人に送ってください', 'info');
-            }
-            if (r.code === 'DUPLICATE_NAME') ui.fieldError($('a-name'), r.message);
-            else ui.pageMessage(r.message, 'error');
+        var b = addBasic.get(), h = addHist.get(), pay = addHist.getPay();
+        if (!b || !h || pay === false) return;
+        if (pay) Object.keys(pay).forEach(function (k) { h[k] = pay[k]; }); // 新しい人には前の行が無い（「今のまま」は出ない）
+        // 保険の番号は答えに insuranceItems があるときだけ b に入っている（3 つそろえて送る）
+        var args = Object.assign({}, b, { history: h });
+        confirmDc(pay).then(function (go) {
+          if (!go) return;
+          ui.run(function () {
+            return save('master.admin.addEmployee', args).then(function (r) {
+              if (r.ok) {
+                currentId = r.data.employeeId;
+                return reload('追加しました。まだログインできません。下の「招待リンクを出す」を押して、本人に送ってください', 'info');
+              }
+              if (r.code === 'DUPLICATE_NAME') ui.fieldError($('a-name'), r.message);
+              else if (r.code === 'BAD_REQUEST' && (addBasic.showError(r.message) || addHist.showError(r.message))) return;
+              else ui.pageMessage(r.message, 'error');
+            });
           });
         });
       });

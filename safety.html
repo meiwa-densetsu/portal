@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>安否確認｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=25">
+<script src="js/boot.js?v=25" defer></script>
+<script src="js/sw_register.js?v=25" defer></script>
+<script src="js/config.js?v=25" defer></script>
+<script src="js/store.js?v=25" defer></script>
+<script src="js/ui.js?v=25" defer></script>
+<script src="js/api.js?v=25" defer></script>
+<script src="js/report.js?v=25" defer></script>
+<script src="js/guard.js?v=25" defer></script>
+<script src="gen/calc_task.js?v=25" defer></script>
+<script src="js/remind.js?v=25" defer></script>
+<script src="js/safety_pending.js?v=25" defer></script>
+<script src="js/page_safety.js?v=25" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<div id="safety" hidden>
+  <h1>安否確認</h1>
+  <div id="no-check" class="card" hidden>
+    <p>今、動いている安否確認はありません。</p>
+  </div>
+  <div id="old-notes"></div>
+  <div id="offline-note" class="msg warn" hidden>電波が戻ったら開き直してください。どうしても送れないときは、電話か LINE で知らせてください</div>
+  <div id="check" class="card" hidden>
+    <p id="check-title" class="safety-head"></p>
+    <p class="sub">あてはまるものを押してください。答え直しもできます。</p>
+    <h2>今の状態</h2>
+    <div id="status-buttons" class="choice-grid"></div>
+    <h2>出社できますか</h2>
+    <div id="work-buttons" class="choice-row"></div>
+    <div class="field">
+      <label for="note">一言（なくてもよい）</label>
+      <input type="text" id="note" maxlength="200" autocomplete="off">
+    </div>
+    <button type="button" id="send" class="btn primary block">この内容で送る</button>
+    <p id="send-state" class="send-state" role="status" aria-live="polite"></p>
+    <p id="storage-note" class="msg warn" hidden>この端末では答えを控えられません。「届きました」が出るまで、この画面を閉じないでください</p>
+    <p class="sub">どうしても送れないときは、電話か LINE で知らせてください。</p>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

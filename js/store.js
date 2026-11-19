@@ -17,8 +17,11 @@
  *                  管理者に知らせる（report.js）の、まだ送れていない控え（[{ rid, id: 押したときの社員ID か空, at, report }]。report は計画 stage2-error-report-plan.md 2-2 の形だけ）。
  *                  どちらの領域も 3 件まで・3 日まで。clearToken は sessionStorage の分だけを消す（localStorage の分は、送るときに社員を見る。同 2-4）
  *   mp.flash / mp.inviteName / mp.reloaded  sessionStorage  次の画面に1回だけ渡す文・名前、読み込み直しの印（秘密ではない）
- *   mp_bulk_pending:<社員ID>:<requestId>  localStorage  まとめて登録の、結果の分からない保存の記録（page_admin_bulk.js。送る処理と中身〔名前・生年月日・入社日を含む〕）。
- *                  結果がはっきりしたら消す。ログアウトでは消さない（次に開いたときに同じ requestId で送り直すため）。そのため「他の人も使う」のログインでは、まとめて登録を使わせない
+ *   mp_bulk_pending:<社員ID>:<requestId>  localStorage  まとめて登録の、結果の分からない保存の記録（page_admin_bulk.js。{ action, requestId, at } だけ。送る中身・名前・番号・金額は入れない）。
+ *                  結果がはっきりしたら消す（計画 stage2-employee-fields-plan.md 10-7）
+ *   mp_bulk_import:<社員ID>  localStorage  まとめて登録の、1 回の取り込みの全部の操作（{ at, count, items: [{ requestId, action }] } だけ。同 10-9）。
+ *                  「取り込みを終える」・次の取り込みで消す。mp_bulk_ の記録は、ログアウトしたとき（clearBulk）と、別の人でログインしたとき（guard.js が clearBulk(社員ID)）にも消す。
+ *                  「他の人も使う」のログインでは、まとめて登録を使わせない
  *   mp_bulk_storage_check  localStorage  まとめて登録の、記録できるかの試し（書いてすぐ消す）
  *
  * パスワード・仮パスワード・招待の文字列・追加コードは保存しない
@@ -101,11 +104,29 @@
       set(shared ? S() : L(), K.token, token);
       if (shared) del(L(), K.lastLoginId);
     },
+    /**
+     * まとめて登録の途中の記録（mp_bulk_pending:・mp_bulk_import:）を消す。keepId（社員ID）を渡すと、その人の記録だけ残す
+     * （ログアウトで全部・別の人のログインでその人以外。計画 stage2-employee-fields-plan.md 10-4）
+     */
+    clearBulk: function (keepId) {
+      var a = L();
+      if (!a) return;
+      var drop = [];
+      try {
+        for (var i = 0; i < a.length; i++) {
+          var k = a.key(i);
+          var m = k ? /^mp_bulk_(?:pending|import):([^:]*)/.exec(k) : null;
+          if (m && !(keepId && m[1] === keepId)) drop.push(k);
+        }
+      } catch (e) { return; }
+      drop.forEach(function (k) { del(a, k); });
+    },
     clearToken: function () {
       sealed = true; // 初めに立てる（この後に来る pagehide などで控えを書き直さない）
       del(L(), K.token); del(S(), K.token); del(S(), K.viewAs); // 見ている印も消す（残るとログインの依頼に viewAs が付いて断られる）
       wipe(L(), K.me); wipe(S(), K.me); wipe(L(), K.taskView); wipe(S(), K.taskView); wipe(S(), K.remind); wipe(S(), K.netLog);
       MP.store.clearReportShared(); // 知らせの控えは、共有のログイン中に押した分（sessionStorage）だけ消す。localStorage の分は残す（計画 stage2-error-report-plan.md 2-4）
+      MP.store.clearPortal(); // ホームの控え・動いている安否確認の控え・共有のログインの安否の控え（計画 stage4-board-plan.md 11-2・11-3）
     },
 
     /*
@@ -174,6 +195,8 @@
     },
     /** 今の token の目印（無ければ空）。画面が「開いたときと同じログインか」を見分けるのに使う（認証・認可には使わない） */
     tokenMark: function () { var t = MP.store.token(); return t ? mark(t) : ''; },
+    /** 渡した token の目印（無ければ空）。読んだ token で確かめるため（保存領域を読み直さない。計画 stage4-board-plan.md 22-2） */
+    markOf: function (t) { return t ? mark(t) : ''; },
     /**
      * 本物の答えの me を覚える。clearToken の後・token が無い・形が違うときは書かずに消す。見ている間は何もしない。
      * sentMark … その答えを頼んだときのログインの目印。今のログインと違う・無いときは、書きも消しもしない
@@ -281,12 +304,92 @@
     viewAs: function () {
       var v = get(S(), K.viewAs);
       if (!v) return null;
-      try {
-        var o = JSON.parse(v);
-        return o && typeof o.employeeId === 'string' && /^E\d{4}$/.test(o.employeeId) && typeof o.name === 'string' ? o : null;
-      } catch (e) { return null; }
+      var o = parse(v);
+      // 印には、見始めたときのログインの目印（k）が入っている。今のログインと違う・目印が無い（古い形）・形が違うときは使わずに消す
+      // （ログインが変わった後に、前の管理者が見ていた社員の画面を引き継がない。印を消すのに失敗していても防ぐ。計画 stage4-board-plan.md 24-13）
+      var t = MP.store.token();
+      var ok = !!o && typeof o.employeeId === 'string' && /^E\d{4}$/.test(o.employeeId) && typeof o.name === 'string' &&
+        typeof o.k === 'string' && o.k !== '' && !!t && o.k === mark(t);
+      if (!ok) { wipe(S(), K.viewAs); return null; }
+      return { employeeId: o.employeeId, name: o.name };
     },
-    setViewAs: function (o) { set(S(), K.viewAs, JSON.stringify({ employeeId: o.employeeId, name: o.name })); },
+    setViewAs: function (o) {
+      var t = MP.store.token();
+      if (!t) return;
+      set(S(), K.viewAs, JSON.stringify({ employeeId: o.employeeId, name: o.name, k: mark(t) }));
+    },
     clearViewAs: function () { del(S(), K.viewAs); },
+
+    // ---- 段階4（計画 stage4-board-plan.md 11-2・11-3）----
+    /*
+     *   mp.view.home   localStorage  ホームの控え（{ k, id, savedAt, data }。見出しだけ。本文・健康診断の区分・確定日・ほかの人の情報は入れない）。
+     *                  答えを頼んだときのログインが今と同じ・見ている間でない・共有のログインでないときだけ書く。HOME_VIEW_MAX_H 時間より古いものは使わない
+     *   mp.safety.active  token と同じ領域  動いている安否確認の控え（{ k, id, checkId, title, training, at }。電波が無いときに安否の画面でボタンを出すため）
+     *   mp.safety.p:・mp.safety.done:・mp.safety.c:  送れていない安否の答えの控え（web/js/safety_pending.js。共有のログインは sessionStorage）
+     */
+    /** ホームの控え（今のログイン・今の社員・決めた時間の中のものだけ）。無ければ null */
+    homeView: function () {
+      var me = MP.store.me();
+      if (!me || MP.store.tokenShared()) return null;
+      var o = parse(get(L(), 'mp.view.home'));
+      var maxMs = (MP.config.HOME_VIEW_MAX_H || 12) * 3600000;
+      return o && o.k === mark(MP.store.token()) && o.id === me.employeeId && typeof o.savedAt === 'number' && Date.now() - o.savedAt <= maxMs && Date.now() - o.savedAt >= -60000 &&
+        o.data && typeof o.data === 'object' ? o.data : null;
+    },
+    /** ホームの控えを書く（sentMark が今のログインと違う・無いときは書きも消しもしない。共有のログインでは残さない） */
+    setHomeView: function (employeeId, data, sentMark) {
+      if (sealed || !sameLogin(sentMark) || MP.store.viewAs()) return;
+      var me = MP.store.me();
+      if (!me || me.employeeId !== employeeId) return;
+      if (MP.store.tokenShared()) { wipe(L(), 'mp.view.home'); return; }
+      var text;
+      try { text = JSON.stringify({ k: mark(MP.store.token()), id: employeeId, savedAt: Date.now(), data: data }); } catch (e) { text = ''; }
+      if (!text || text.length > VIEW_MAX_CHARS || !set(L(), 'mp.view.home', text)) wipe(L(), 'mp.view.home');
+    },
+    /** 動いている安否確認の控え（今のログイン・今の社員のものだけ）。無ければ null */
+    safetyActive: function (employeeId) {
+      var a = tokenArea();
+      if (!a) return null;
+      var o = parse(get(a, 'mp.safety.active'));
+      return o && o.k === mark(MP.store.token()) && o.id === employeeId && typeof o.checkId === 'string' && /^S\d{4}$/.test(o.checkId) ? o : null;
+    },
+    /**
+     * 安否確認の印（task.reminders・portal.home・safety.get の答え）を控える。本人のログインのときだけ（sentMark が今と同じ・見ている間でない）。
+     * 印が「動いていない」なら消す
+     */
+    setSafetyActive: function (employeeId, safety, sentMark) {
+      if (sealed || !sameLogin(sentMark) || MP.store.viewAs()) return;
+      var a = tokenArea();
+      if (!a || typeof employeeId !== 'string') return;
+      if (!safety || safety.active !== true || typeof safety.checkId !== 'string') { wipe(a, 'mp.safety.active'); return; }
+      set(a, 'mp.safety.active', JSON.stringify({ k: mark(MP.store.token()), id: employeeId, checkId: safety.checkId, title: String(safety.title || ''), training: safety.training === true,
+        answered: safety.answered === true, at: Date.now() }));
+    },
+    /**
+     * ログインが変わって画面を開き直す前に、このタブに残る「前の人の印」を消す（計画 stage4-board-plan.md 24-12）:
+     * 社員の画面を見ている印・通信の控え・次の画面に渡す一言・招待の名前・読み込み直しの印・リマインダーの控え・このタブの動いている安否確認の控え。
+     * token・ログインの目印で守っている控え（me・ホーム・タスクの控えなど）はそのまま（目印が違えば使われない）
+     */
+    clearTabMarks: function () {
+      var s = S();
+      del(s, K.viewAs); wipe(s, K.netLog); del(s, K.flash); del(s, K.inviteName); del(s, K.reloaded); wipe(s, K.remind); wipe(s, 'mp.safety.active');
+    },
+    /** ログアウトのとき: ホームの控え・動いている安否確認の控えと、共有のログインの安否の控え（sessionStorage）を消す。localStorage の安否の控えは残す（送るときに社員を確かめる） */
+    clearPortal: function () {
+      wipe(L(), 'mp.view.home'); wipe(L(), 'mp.safety.active'); wipe(S(), 'mp.safety.active');
+      var s = S();
+      if (!s) return;
+      var drop = [];
+      try { for (var i = 0; i < s.length; i++) { var k = s.key(i); if (k && /^mp\.safety\./.test(k)) drop.push(k); } } catch (e) { return; }
+      drop.forEach(function (k) { del(s, k); });
+    },
+    /** 共有のログインの安否の控え（sessionStorage の送れていない答え）の数。ログインが切れて消す前に、知らせるかを決めるため（24-15） */
+    sharedSafetyPending: function () {
+      var s = S();
+      var n = 0;
+      if (!s) return 0;
+      try { for (var i = 0; i < s.length; i++) { var k = s.key(i); if (k && k.indexOf('mp.safety.p:') === 0) n++; } } catch (e) { return 0; }
+      return n;
+    },
   };
 })();

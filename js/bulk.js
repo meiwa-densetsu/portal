@@ -14,6 +14,11 @@
  *   MP.bulk.planKey(計画, data) → 計画の中身の目印（action と args の全部。部署ID は名前の鍵に置き換える）
  *   MP.bulk.hasTempId(ops) → 仮の ID が残っているか
  *
+ * 保険の番号・給与の固定の項目（計画 docs/plans/stage2-employee-fields-plan.md 第4章・10-5・10-8）で足した分:
+ *   data.options.payItems がある答え（サーバーの API 9）のときだけ、社員の表に 16 列（PAY_EXTRA_HEADERS）を足す。無ければ今の 12 列のまま
+ *   employeeRows(data, { omitPay: true }) … 16 列を入れない（「入れない」で書き出す）
+ *   planEmployees(行, data, { knownIds: { 名前の鍵: 社員ID } }) … 前の取り込みで足せていた人（画面を開いている間だけ覚える対応）を、その社員ID の行として扱う
+ *
  * 最終の判断はサーバー（ここでの確かめは、保存の前に早めに知らせるため）
  */
 (function (root) {
@@ -30,6 +35,8 @@
   var EMP_HEADERS = ['社員ID', '名前', '表示順', '入社日', '生年月日', '適用開始日', '権限', '部署', '閲覧部署', '雇用区分', '1日の所定労働時間', '状態'];
   /** 社員の表で無くてもよい列 */
   var EMP_OPTIONAL = ['状態'];
+  /** 16 列を足した社員の表の見出し（28 列。PAY_EXTRA_HEADERS は下で決める） */
+  function empPayHeaders() { return EMP_HEADERS.slice(0, EMP_HEADERS.length - 1).concat(PAY_EXTRA_HEADERS, [EMP_HEADERS[EMP_HEADERS.length - 1]]); }
   /**
    * 社員の表で読み飛ばす列（前に書き出した表に残っている 2 列。部署で決まるので使わない）。
    * 知らない列にも足りない列にも数えず、値は読まない。部署の表には渡さない（部署の表では要る列）
@@ -41,6 +48,38 @@
   var ORDER_MAX = 9999;
   var MINUTES_MAX = 1440;
   var BAD_CHARS = /[\u0000-\u001f\u007f\p{Cf}]/u;
+
+  /**
+   * 保険の番号の 3 列と、給与の固定の項目の 13 列（計画 stage2-employee-fields-plan.md 4-1。列の並びは表の順）。
+   * 見出しの名前は、サーバーの INSURANCE_ITEMS・PAY_ITEMS の画面での名前（label）と同じ（試験で確かめる）
+   */
+  var INS_COLS = [
+    { col: '健康保険の番号', key: 'healthInsuranceNo' },
+    { col: '基礎年金番号', key: 'pensionNo' },
+    { col: '雇用保険の番号', key: 'employmentInsuranceNo' },
+  ];
+  var PAY_COLS = [
+    { col: '基本給', key: 'basePay', unit: 'yen' },
+    { col: '査定給', key: 'evalPay', unit: 'yen' },
+    { col: '奨励金', key: 'incentive', unit: 'yen' },
+    { col: '生涯設計前払金', key: 'lifePlanPrepay', unit: 'yen' },
+    { col: '役員手当', key: 'officerAllowance', unit: 'yen' },
+    { col: '役職手当', key: 'positionAllowance', unit: 'yen' },
+    { col: '免許手当', key: 'licenseAllowance', unit: 'yen' },
+    { col: '住宅食事手当', key: 'housingMealAllowance', unit: 'yen' },
+    { col: '見込み残業手当', key: 'fixedOvertimePay', unit: 'yen' },
+    { col: '家族手当', key: 'familyAllowance', unit: 'yen' },
+    { col: '交通費', key: 'commute', unit: 'yen' },
+    { col: '含み残業時間', key: 'fixedOvertimeMinutes', unit: 'minutes' },
+    { col: '夜勤1日あたりの金額', key: 'nightShiftPay', unit: 'yen' },
+  ];
+  /** 足す 16 列の見出し（「1日の所定労働時間」の後ろ・「状態」の前） */
+  var PAY_EXTRA_HEADERS = INS_COLS.map(function (c) { return c.col; }).concat(PAY_COLS.map(function (c) { return c.col; }));
+  /** 早めに知らせるための柵（サーバーの RULES.PAY・RULES.INSURANCE と同じ数。答えには入っていないので、ここに置く。最終の判断はサーバー） */
+  var PAY_LIMITS = { YEN_MAX: 9999999, MINUTES_MAX: 6000 };
+  var INS_LIMITS = { PENSION_DIGITS: 10, EMPLOYMENT_DIGITS: 11, HEALTH_MAX: 30, HEALTH_MIN_DIGITS: 5 };
+  var PAY_NEEDS_HIST = '給与の項目を変えるときは、権限〜1日の所定労働時間も入れてください';
+  var PAY_DC_KEY = 'lifePlanPrepay';
 
   // ---------------------------------------------------------------- 名前・日付・時間
 
@@ -104,6 +143,88 @@
     var p = String(s).split('-');
     return Number(p[0]) + '年' + Number(p[1]) + '月' + Number(p[2]) + '日';
   }
+
+  // ---------------------------------------------------------------- 保険の番号・給与の固定の項目（計画 stage2-employee-fields-plan.md 4-2）
+
+  /** サーバーの答えが給与・保険の番号の欄を持つか（1 つ前のサーバーの答え・今の試験の見本 data では偽 → 今の 12 列のまま） */
+  function hasPay(data) {
+    return !!(data && data.options && Array.isArray(data.options.payItems) && data.options.payItems.length);
+  }
+
+  /** 3 けたごとのカンマ（250000 → 250,000） */
+  function commas(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  /** 給与の値 → 表の文字（書き出しと「変えない」の判定で同じものを使う）。null → 空。読めない値（文字）は、そのままの文字 */
+  function payCell(v, unit) {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'number') return unit === 'minutes' ? fmtMinutes(v) : String(v);
+    return String(v);
+  }
+
+  /** 確かめの一覧に出す給与の値 */
+  function payLabel(v, unit) {
+    if (v === null || v === undefined) return '空';
+    if (typeof v === 'number') return unit === 'minutes' ? fmtMinutes(v) : commas(v);
+    return '読めない値';
+  }
+
+  /** 金額のマスの文字 → { value: 数 | null } か { error }。NFKC → 前後の空白 → 3 けたごとのカンマと末尾の「円」は受け付ける → 0〜上限の整数 */
+  function parseYen(s, label) {
+    var t = String(s).normalize('NFKC').trim();
+    if (t === '') return { value: null };
+    t = t.replace(/\s*円$/, '');
+    if (!/^(\d+|\d{1,3}(,\d{3})+)$/.test(t)) return { error: label + 'は 0 以上の整数（円）で入れてください' };
+    var n = Number(t.replace(/,/g, ''));
+    if (!isFinite(n) || n > PAY_LIMITS.YEN_MAX) return { error: label + 'は ' + commas(PAY_LIMITS.YEN_MAX) + ' 円までで入れてください' };
+    return { value: n };
+  }
+
+  /** 含み残業時間のマスの文字 → { value: 分 | null } か { error }。30:00・30（時間だけ）・7:30。0〜100:00 */
+  function parseOtMinutes(s, label) {
+    var t = String(s).normalize('NFKC').trim();
+    if (t === '') return { value: null };
+    var m = /^(\d{1,3}):(\d{2})(?::00)?$/.exec(t);
+    var n = null;
+    if (m && Number(m[2]) < 60) n = Number(m[1]) * 60 + Number(m[2]);
+    else if (/^\d{1,3}$/.test(t)) n = Number(t) * 60;
+    if (n === null || n > PAY_LIMITS.MINUTES_MAX) return { error: label + 'は 30:00 の形で、0:00〜' + fmtMinutes(PAY_LIMITS.MINUTES_MAX) + ' で入れてください' };
+    return { value: n };
+  }
+
+  var INS_HYPHENS = /[-‐‑‒–—―−ー－﹣]/g;
+
+  /**
+   * 保険の番号をそろえる（サーバーの ins_normalize_ と同じ決まり）。返り値: { value: そろえた文字（空 = 未登録） } か { error }。
+   * 誤りの文に、入れた値を書かない
+   */
+  function normIns(key, v) {
+    var s = String(v).normalize('NFKC').trim();
+    if (s === '') return { value: '' };
+    if (key === 'pensionNo' || key === 'employmentInsuranceNo') {
+      var d = s.replace(INS_HYPHENS, '').replace(/\s/g, '');
+      var n = key === 'pensionNo' ? INS_LIMITS.PENSION_DIGITS : INS_LIMITS.EMPLOYMENT_DIGITS;
+      if (!new RegExp('^\\d{' + n + '}$').test(d)) return { error: (key === 'pensionNo' ? '基礎年金番号' : '雇用保険の番号') + 'は ' + n + ' けたの数字で入れてください' };
+      return { value: key === 'pensionNo' ? d.slice(0, 4) + '-' + d.slice(4) : d.slice(0, 4) + '-' + d.slice(4, 10) + '-' + d.slice(10) };
+    }
+    if (BAD_CHARS.test(s)) return { error: '健康保険の番号に使えない文字が入っています' };
+    var t = s.replace(/[‐‑‒–—―−－﹣]/g, '-').replace(/\s+/g, ' ');
+    if (!/^[0-9A-Za-zぁ-ゖァ-ヺー一-鿿々\- ]+$/.test(t) || t.length > INS_LIMITS.HEALTH_MAX) {
+      return { error: '健康保険の番号は、数字・英字・かな・漢字・ハイフンで ' + INS_LIMITS.HEALTH_MAX + ' 文字まで入れてください' };
+    }
+    if (t.replace(/\D/g, '').length < INS_LIMITS.HEALTH_MIN_DIGITS) return { error: '健康保険の番号は、数字を ' + INS_LIMITS.HEALTH_MIN_DIGITS + ' けた以上ふくめて入れてください' };
+    return { value: t };
+  }
+
+  /** 履歴の行の給与の値（一覧の答えの h.pay。無ければ null） */
+  function payOf(h, key) {
+    var p = h && h.pay && typeof h.pay === 'object' ? h.pay : null;
+    return p && Object.prototype.hasOwnProperty.call(p, key) && p[key] !== undefined ? p[key] : null;
+  }
+
+  function isKeep(v) { return !!v && typeof v === 'object' && v.keep === true; }
+
+  /** 給与の値どうしが同じか（数・null・読めない値の文字） */
+  function samePay(a, b) { return (a === undefined ? null : a) === (b === undefined ? null : b); }
 
   // ---------------------------------------------------------------- 履歴
 
@@ -346,18 +467,39 @@
     return c ? c.name : '';
   }
 
-  /** 書き出す行（見出しは含まない。値はすべて文字。列の順は EMP_HEADERS） */
-  function employeeRows(data) {
+  /** 給与の 13 列の文字（PAY_COLS の順）。行が無ければ全部空 */
+  function payCells(h) {
+    return PAY_COLS.map(function (c) { return h ? payCell(payOf(h, c.key), c.unit) : ''; });
+  }
+
+  /** 保険の番号の 3 列の文字（INS_COLS の順。一覧の答えの e.insurance。全部の桁） */
+  function insCells(e) {
+    var ins = e && e.insurance && typeof e.insurance === 'object' ? e.insurance : {};
+    return INS_COLS.map(function (c) { return str(ins[c.key]); });
+  }
+
+  /** 社員の表の見出し（中の名前）。給与・保険の番号の列は、サーバーの答えが持っていて、入れない（omitPay）を選んでいないときだけ */
+  function employeeHeaders(data, opt) {
+    return hasPay(data) && !(opt && opt.omitPay) ? empPayHeaders() : EMP_HEADERS.slice();
+  }
+
+  /**
+   * 書き出す行（見出しは含まない。値はすべて文字。列の順は employeeHeaders）。
+   * 給与は今日に効く行の値（読めない値はそのままの文字。計画 10-5）、保険の番号は全部の桁
+   */
+  function employeeRows(data, opt) {
+    var withPay = hasPay(data) && !(opt && opt.omitPay);
     return data.employees.map(function (e) {
       var ef = effective(e.history, data.today, data.options.roles);
       var cells = ef.row ? histCells(data, ef.row) : EMPTY_HIST;
+      var extra = withPay ? insCells(e).concat(payCells(ef.row || null)) : [];
       return [e.employeeId, e.name, e.order === null ? '' : e.order, fmtDateOut(e.joinDate), fmtDateOut(e.birthDate), ''].concat(cells)
-        .concat([statusText(e)]).map(str);
+        .concat(extra, [statusText(e)]).map(str);
     });
   }
 
   function exportEmployees(data) {
-    return toTsv(EMP_HEADERS, employeeRows(data));
+    return toTsv(employeeHeaders(data), employeeRows(data));
   }
 
   /**
@@ -388,12 +530,69 @@
     return { error: '「' + name + '」は使っていない部署です' };
   }
 
-  function planEmployees(text, data) {
-    var t = readTable(text, EMP_HEADERS, EMP_OPTIONAL, EMP_SKIPPED);
+  /**
+   * 1 行の保険の番号を読む。列が無い → 今の値（今の人）・空（新しい人）。返り値: { values: { key: そろえた文字 }, changed: [列の名前] }（誤りは errors に足す）
+   */
+  function readIns(r, t, cur, errors) {
+    var values = {}, changed = [];
+    var now = cur ? insCells(cur) : INS_COLS.map(function () { return ''; });
+    INS_COLS.forEach(function (c, i) {
+      if (!t.has(c.col)) { values[c.key] = now[i]; return; }
+      var text = r.get(c.col);
+      // 今の値と同じ文字なら変えない（シートを手で直した、今の決まりに合わない値も、往復で誤りにしない）
+      if (cur && text === now[i].trim()) { values[c.key] = now[i]; return; }
+      var n = normIns(c.key, text);
+      if (n.error) { errors.push(n.error); values[c.key] = now[i]; return; }
+      values[c.key] = n.value;
+      if (n.value !== now[i]) changed.push(c.col);
+    });
+    return { values: values, changed: changed };
+  }
+
+  /**
+   * 1 行の給与の 13 個を読む。effRow … その日に効いている今の行（無ければ null）。
+   * 列が無い → 「今のまま」（{ keep: true }。新しい人は null）。マスの文字が今の読めない値と同じ → 「今のまま」（計画 10-5）。
+   * 返り値: { values: { key: 数 | null | { keep: true } }, changed: [{ c, from, to }] }（誤りは errors に足す）
+   */
+  function readPay(r, t, cur, effRow, errors) {
+    var values = {}, changed = [];
+    PAY_COLS.forEach(function (c) {
+      var now = effRow ? payOf(effRow, c.key) : null;
+      if (!t.has(c.col)) { values[c.key] = cur ? { keep: true } : null; return; }
+      var text = r.get(c.col);
+      if (cur && typeof now === 'string' && text === now.trim()) { values[c.key] = { keep: true }; return; }
+      var p = c.unit === 'minutes' ? parseOtMinutes(text, c.col) : parseYen(text, c.col);
+      if (p.error) { errors.push(p.error); values[c.key] = cur ? { keep: true } : null; return; }
+      values[c.key] = p.value;
+      if (!samePay(p.value, now)) changed.push({ c: c, from: now, to: p.value });
+    });
+    return { values: values, changed: changed };
+  }
+
+  /** 給与の変わる所の文（確かめの一覧）: 給与の項目（基本給 250,000 → 260,000 ほか 2 項目） */
+  function payDiffText(changed) {
+    var f = changed[0];
+    return '給与の項目（' + f.c.col + ' ' + payLabel(f.from, f.c.unit) + ' → ' + payLabel(f.to, f.c.unit) +
+      (changed.length > 1 ? ' ほか ' + (changed.length - 1) + ' 項目' : '') + '）';
+  }
+
+  /** 生涯設計前払金が確定拠出年金の上限（設定）を超えるときの注意（保存は止めない。計画 4-2） */
+  function dcNote(data, values) {
+    var limit = data.options.dcLimitYen;
+    var v = values[PAY_DC_KEY];
+    if (typeof limit !== 'number' || typeof v !== 'number' || v <= limit) return '';
+    return '生涯設計前払金（' + commas(v) + ' 円）が、確定拠出年金の上限（' + commas(limit) + ' 円）を超えています（保存はできます）';
+  }
+
+  function planEmployees(text, data, opt) {
+    var withPay = hasPay(data);
+    var t = readTable(text, withPay ? empPayHeaders() : EMP_HEADERS, withPay ? EMP_OPTIONAL.concat(PAY_EXTRA_HEADERS) : EMP_OPTIONAL, EMP_SKIPPED);
     if (t.fatal) return { fatal: t.fatal };
     var o = data.options;
     var byId = {};
     data.employees.forEach(function (e) { byId[e.employeeId] = e; });
+    // 前の取り込みで足せていた人（名前の鍵 → 社員ID。画面を開いている間だけの対応。計画 10-8・10-9）
+    var known = opt && opt.knownIds && typeof opt.knownIds === 'object' ? opt.knownIds : {};
     var seenId = {};
     var rows = t.rows.map(function (r) {
       var row = { line: r.line, label: '', errors: r.errors.slice(), notes: [], ops: [] };
@@ -401,6 +600,20 @@
       var name = r.get('名前');
       row.label = (id || '新しい人') + ' ' + name;
       var cur = null;
+      if (!id && name && Object.prototype.hasOwnProperty.call(known, nameKey(name))) {
+        // 社員ID が空でも、前の取り込みで足せていた人（今の名前も同じ）なら、その人の行として扱う（新しく足さない）
+        var kid = known[nameKey(name)];
+        var ke = Object.prototype.hasOwnProperty.call(byId, kid) ? byId[kid] : null;
+        // 有効でない人（利用停止中・作成中）には補わない。同じ名前の別の人を新しく足せるため、名前だけでは元の行の人か確かめられない
+        // （補わないと、下の名前の重なりの確かめで「社員ID を書き足して」と止まる。Codex 実装 1 回目 medium 2）
+        if (ke && !ke.active && nameKey(ke.name) === nameKey(name)) {
+          row.notes.push('前の取り込みで登録できていた社員ID ' + kid + ' の人は、今は' + (ke.suspendedOn ? '利用停止中' : '作成中') + 'のため、社員ID を自動では補いません。同じ人なら社員ID 欄に ' + kid + ' を入れてください');
+        } else if (ke && nameKey(ke.name) === nameKey(name) && !seenId[kid]) {
+          id = kid;
+          row.label = kid + ' ' + name;
+          row.notes.push('この人は前の取り込みで登録できていました（社員ID ' + kid + '）。この行は、その人の行として確かめます');
+        }
+      }
       if (id) {
         if (seenId[id]) row.errors.push('同じ社員ID が2回あります');
         seenId[id] = true;
@@ -426,11 +639,18 @@
       // ただし今の人で、その日の時点の今の値を書き出したときと同じ文字なら「変えない」（雇用区分などが空の古い行がある人も、往復で誤りにしない）
       var filled = HIST_COLS.filter(function (c) { return r.get(c) !== ''; });
       var wantHist = filled.length > 0;
+      // 給与の 13 個（計画 4-2）: 今の値は、その日に効いている行の値。保険の番号は社員の今の値
+      var efPay = cur && since ? effective(cur.history, since, o.roles) : { none: true };
+      var pay = withPay ? readPay(r, t, cur, efPay.row || null, row.errors) : null;
+      var ins = withPay ? readIns(r, t, cur, row.errors) : null;
+      var payChanged = !!pay && pay.changed.length > 0;
       if (cur && since) {
         var efNow = effective(cur.history, since, o.roles);
         var curCells = efNow.row ? histCells(data, efNow.row) : EMPTY_HIST;
-        if (HIST_COLS.map(function (c) { return r.get(c); }).join('\t') === curCells.join('\t')) wantHist = false;
+        // 権限〜所定が今と同じ文字で、給与も変わらなければ「変えない」（給与だけが違えば、履歴を変える）
+        if (HIST_COLS.map(function (c) { return r.get(c); }).join('\t') === curCells.join('\t') && !payChanged) wantHist = false;
       }
+      if (cur && !filled.length && payChanged) row.errors.push(PAY_NEEDS_HIST);
       if (wantHist && filled.length < HIST_COLS.length && !(filled.length === HIST_COLS.length - 1 && r.get('閲覧部署') === '')) {
         row.errors.push('権限・部署・閲覧部署・雇用区分・1日の所定労働時間は、全部入れるか全部空にしてください（閲覧部署は部長だけ）');
       }
@@ -465,14 +685,23 @@
         var minutes = parseMinutes(r.get('1日の所定労働時間'));
         if (minutes === null) row.errors.push('1日の所定労働時間は 8:00 の形で入れてください（0:01〜24:00）');
         // 休憩方式・会社カレンダーは送らない（部署で決まる。計画 stage1-break-types-plan.md 6-4）
-        if (row.errors.length === before) next = { since: since, role: role, deptId: dept.id, viewDeptIds: viewIds, employmentType: et, dailyMinutes: minutes };
+        if (row.errors.length === before) {
+          next = { since: since, role: role, deptId: dept.id, viewDeptIds: viewIds, employmentType: et, dailyMinutes: minutes };
+          // 給与の 13 個は、そろえて送る（列が無い・今の読めない値と同じ → 「今のまま」。サーバーが直前の行から写す。計画 10-5）
+          if (pay) PAY_COLS.forEach(function (c) { next[c.key] = pay.values[c.key]; });
+        }
       }
       if (row.errors.length) return row;
 
       var group = 'L' + r.line;
       var basicNext = { name: name, order: order, joinDate: join, birthDate: birth };
       if (!cur) {
-        row.ops.push({ action: 'master.admin.addEmployee', args: { name: name, order: order, joinDate: join, birthDate: birth, history: next },
+        var addArgs = { name: name, order: order, joinDate: join, birthDate: birth };
+        if (ins) INS_COLS.forEach(function (c) { addArgs[c.key] = ins.values[c.key]; });
+        addArgs.history = next;
+        var dcA = pay ? dcNote(data, pay.values) : '';
+        if (dcA) row.notes.push(dcA);
+        row.ops.push({ action: 'master.admin.addEmployee', args: addArgs,
           label: '新しく足す: ' + name + '（' + fmtDateJa(since) + 'から ' + next.role + '・' + deptNameOf(data, next.deptId) + '）', line: r.line, group: group });
         return row;
       }
@@ -482,29 +711,49 @@
       if (str(cur.order) !== str(order)) diffs.push('表示順 ' + str(cur.order) + ' → ' + order);
       if (str(cur.joinDate) !== join) diffs.push('入社日 ' + (str(cur.joinDate) || '空') + ' → ' + (join || '空'));
       if (str(cur.birthDate) !== birth) diffs.push('生年月日 ' + (str(cur.birthDate) || '空') + ' → ' + (birth || '空'));
+      // 保険の番号は、今の値と比べて変わったものだけを送る（どの番号かだけを出し、番号そのものは一覧に出さない）
+      var insChanged = !!ins && ins.changed.length > 0;
+      if (insChanged) diffs.push('保険の番号（' + ins.changed.join('・') + '）');
       if (diffs.length && order === null) {
         row.errors.push('名前などを変えるときは、表示順も 1〜' + ORDER_MAX + ' の整数で入れてください');
         row.ops = [];
         return row;
       }
       if (diffs.length) {
+        var ubase = { name: cur.name, order: cur.order, joinDate: cur.joinDate, birthDate: cur.birthDate };
+        if (insChanged) {
+          // 番号は 3 つそろえて送る（base は今の値、next は読んだ値。変えない番号は今の値のまま）
+          var nowIns = insCells(cur);
+          INS_COLS.forEach(function (c, i) { ubase[c.key] = nowIns[i]; basicNext[c.key] = ins.values[c.key]; });
+        }
         row.ops.push({ action: 'master.admin.updateEmployee',
-          args: { employeeId: cur.employeeId, base: { name: cur.name, order: cur.order, joinDate: cur.joinDate, birthDate: cur.birthDate }, next: basicNext },
+          args: { employeeId: cur.employeeId, base: ubase, next: basicNext },
           label: '基本（' + cur.employeeId + '）: ' + diffs.join('・'), line: r.line, group: group, part: 'basic' });
       }
       if (next) {
         var same = effRow && effRow.role === next.role && effRow.deptId === next.deptId && str(effRow.viewDeptIds) === str(next.viewDeptIds) &&
-          effRow.employmentType === next.employmentType && effRow.dailyMinutes === next.dailyMinutes;
+          effRow.employmentType === next.employmentType && effRow.dailyMinutes === next.dailyMinutes && !payChanged;
         if (!same) {
           var sameDay = cur.history.filter(function (h) { return h.since === since; });
           var base = sameDay.length === 1 ? sameDay[0] : null;
           var baseArgs = base ? { since: base.since, role: base.role, deptId: base.deptId, viewDeptIds: base.viewDeptIds, employmentType: base.employmentType, dailyMinutes: base.dailyMinutes } : null;
+          // 今ある行を直すときは、給与の base も 13 個そろえて送る（画面が見ていた値。読めない値は文字のまま）
+          if (baseArgs && pay) PAY_COLS.forEach(function (c) { baseArgs[c.key] = payOf(base, c.key); });
           var hd = [];
           if (!effRow || effRow.role !== next.role) hd.push('権限 ' + (effRow ? effRow.role : '—') + ' → ' + next.role);
           if (!effRow || effRow.deptId !== next.deptId) hd.push('部署 ' + (effRow ? deptNameOf(data, effRow.deptId) : '—') + ' → ' + deptNameOf(data, next.deptId));
           if (!effRow || str(effRow.viewDeptIds) !== str(next.viewDeptIds)) hd.push('閲覧部署');
           if (!effRow || effRow.employmentType !== next.employmentType) hd.push('雇用区分 → ' + next.employmentType);
           if (!effRow || effRow.dailyMinutes !== next.dailyMinutes) hd.push('所定 → ' + fmtMinutes(next.dailyMinutes));
+          var onlyPay = !hd.length && payChanged;
+          if (payChanged) hd.push(payDiffText(pay.changed));
+          // 金額だけが変わり「いつから」が空 → 今日からになる、と知らせる（給与の締めに合わせるときは日付を入れる。計画 4-2・Q2）
+          if (onlyPay && sinceText === '') {
+            var tp = data.today.split('-');
+            row.notes.push('金額は今日（' + Number(tp[1]) + ' 月 ' + Number(tp[2]) + ' 日）から変わります。給与の締め（21 日）に合わせるときは「いつから」に日付を入れてください');
+          }
+          var dcH = pay ? dcNote(data, pay.values) : '';
+          if (dcH && pay.changed.some(function (x) { return x.c.key === PAY_DC_KEY; })) row.notes.push(dcH);
           row.ops.push({ action: 'master.admin.saveHistory',
             args: base
               ? { employeeId: cur.employeeId, baseSince: since, base: baseArgs, next: next }
@@ -531,6 +780,9 @@
     // 読み飛ばした列（前に書き出した表の 休憩方式・カレンダー）があれば、画面に 1 行知らせる
     out.skipped = t.skipped.slice();
     if (t.skipped.length) out.note = SKIPPED_NOTE;
+    // 無い列（前の版のファイル・列を消したファイル・「入れない」で書き出したファイル）は、その項目を今のまま変えない。そのことを 1 行知らせる（計画 4-2）
+    out.missing = withPay ? PAY_EXTRA_HEADERS.filter(function (h) { return !t.has(h); }) : [];
+    if (out.missing.length) out.missingNote = 'このファイルには ' + out.missing[0] + (out.missing.length > 1 ? ' など ' + out.missing.length + ' 列' : ' の列') + 'がありません。その項目は今のまま変えません';
     return out;
   }
 
@@ -604,6 +856,8 @@
 
   var api = {
     DEPT_HEADERS: DEPT_HEADERS, EMP_HEADERS: EMP_HEADERS, EMP_SKIPPED: EMP_SKIPPED, SKIPPED_NOTE: SKIPPED_NOTE, TEMP_ID: TEMP_ID,
+    INS_COLS: INS_COLS, PAY_COLS: PAY_COLS, PAY_EXTRA_HEADERS: PAY_EXTRA_HEADERS, PAY_NEEDS_HIST: PAY_NEEDS_HIST, PAY_LIMITS: PAY_LIMITS, INS_LIMITS: INS_LIMITS,
+    hasPay: hasPay, employeeHeaders: employeeHeaders, normIns: normIns, parseYen: parseYen, parseOtMinutes: parseOtMinutes,
     departmentRows: departmentRows, employeeRows: employeeRows, afterDepartments: afterDepartments, planKey: planKey, hasTempId: hasTempId,
     nameKey: nameKey, parseDate: parseDate, parseMinutes: parseMinutes, effective: effective, splitTsv: splitTsv, cellOut: cellOut,
     exportDepartments: exportDepartments, exportEmployees: exportEmployees, planDepartments: planDepartments, planEmployees: planEmployees,

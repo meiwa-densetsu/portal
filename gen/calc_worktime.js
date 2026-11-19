@@ -10,7 +10,7 @@
  *
  * つながり:
  *   validateShift(文字の入力, rules) → shift（分）
- *   calcShift(shift, breakType, rules) → calc（休憩・実働）
+ *   calcShift(shift, breakType, rules, leaves) → calc（休憩・実働。leaves は勤務の中の休みの区間。休暇 計画 stage2-leave-plan.md 第17章）
  *   splitShift(shift, calc, date, rules) → 暦日・深夜・法定休日の区分け（推計）
  *   dayBalance([{ calc, night }], 会社用の所定, rules) → 振替に積む分・足りない分
  *   legalOvertime({ period, applied, days, neighbors, asOf }, rules) → 法律上の時間外（推計）
@@ -172,7 +172,127 @@ var CalcWorktime = (function () {
    * いつも成り立つこと: rawStay = deemedExcluded + adjustedStay、adjustedStay = baseBreak + extraBreak + work、
    *   baseBreak + extraBreak = (lunch の長さ) + otherBreak
    */
-  function calcShift(shift, breakType, rules) {
+  function calcShift(shift, breakType, rules, leaves) {
+    // 勤務の中の休み（休暇の計画 第17章 17-1）: 休みで除く分が 0 なら、今までと全く同じ計算
+    var withLeave = calcShiftLeave_(shift, breakType, rules, leaves);
+    if (withLeave) return withLeave;
+    var out = calcShiftBase_(shift, breakType, rules);
+    out.leaveExcluded = 0;
+    out.leaveSpans = [];
+    return out;
+  }
+
+  /** 区間の並びを始めの順に並べ、重なり・隣り合いをつなぐ（引数は変えない） */
+  function mergeSpans_(spans) {
+    var list = (spans || []).filter(function (s) { return s && isWhole_(s[0]) && isWhole_(s[1]) && s[1] > s[0]; })
+      .map(function (s) { return [s[0], s[1]]; }).sort(function (x, y) { return x[0] - y[0] || x[1] - y[1]; });
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var last = out[out.length - 1];
+      if (last && list[i][0] <= last[1]) { if (list[i][1] > last[1]) last[1] = list[i][1]; }
+      else out.push(list[i]);
+    }
+    return out;
+  }
+
+  /** spans から cuts を除いた区間 */
+  function subtractSpans_(spans, cuts) {
+    var out = [];
+    var cs = mergeSpans_(cuts);
+    spans.forEach(function (s) {
+      var parts = [[s[0], s[1]]];
+      cs.forEach(function (c) {
+        var next = [];
+        parts.forEach(function (p) {
+          if (c[1] <= p[0] || c[0] >= p[1]) { next.push(p); return; }
+          if (c[0] > p[0]) next.push([p[0], c[0]]);
+          if (c[1] < p[1]) next.push([c[1], p[1]]);
+        });
+        parts = next;
+      });
+      parts.forEach(function (p) { if (p[1] > p[0]) out.push(p); });
+    });
+    return out;
+  }
+
+  function spanLen_(spans) {
+    var n = 0;
+    for (var i = 0; i < spans.length; i++) n += spans[i][1] - spans[i][0];
+    return n;
+  }
+
+  /** spans の [from, to) の中の長さ */
+  function lenWithin_(spans, from, to) {
+    var n = 0;
+    for (var i = 0; i < spans.length; i++) n += Math.max(0, Math.min(spans[i][1], to) - Math.max(spans[i][0], from));
+    return n;
+  }
+
+  /**
+   * 勤務の中に休みがあるときの計算（休みで除く分が 0 なら null を返し、今までの計算を使う）。
+   * - 出社〜退社（12 時台のみなしの後）と重なる休みを除く。昼休みを引く勤務では、昼休みと重なる分は数えない（二重に引かない）
+   * - 時刻の決まっていない休憩（午前・午後・夜勤）は、休みを除いた後に残った勤務の中で取ったとみなし、その半分（午前・午後）・全部（夜勤）の勤務の長さを上限にする
+   * - 長く働いた日の追加の休憩・法律で決まった休憩の確かめは、休みを除いた後の長さで（休みは休憩に数えない）
+   * いつも成り立つこと: adjustedStay = baseBreak + extraBreak + leaveExcluded + work
+   */
+  function calcShiftLeave_(shift, breakType, rules, leaves) {
+    if (!leaves || !leaves.length) return null;
+    var warnings = [];
+    var mode = breakMode_(shift.night === true, breakType, rules, warnings);
+    var a = shift.arrive, b = shift.leave;
+    var L0 = rules.LUNCH_FROM, L1 = rules.LUNCH_TO;
+    if (mode !== 'NIGHT') {
+      if (a >= L0 && a < L1) a = L1;
+      if (b > L0 && b < L1) b = L0;
+    }
+    if (b <= a) return null;
+    var lunchApplies = mode === 'SITE' ? !(b <= L0) && !(a >= L1) : mode === 'OFFICE' ? (a <= L0 && b >= L1) : false;
+    var lunchCut = lunchApplies ? [[L0, L1]] : [];
+    var leaveSpans = subtractSpans_(mergeSpans_(leaves).map(function (s) { return [Math.max(s[0], a), Math.min(s[1], b)]; }).filter(function (s) { return s[1] > s[0]; }), lunchCut);
+    var leaveEx = spanLen_(leaveSpans);
+    if (!leaveEx) return null;
+    var rawStay = shift.leave - shift.arrive;
+    var adjustedStay = b - a;
+    var lunchLen = lunchApplies ? L1 - L0 : 0;
+    var worked = subtractSpans_(subtractSpans_([[a, b]], lunchCut), leaveSpans);
+    var workedTotal = spanLen_(worked);
+    var otherBase = 0;
+    if (mode === 'SITE') {
+      if (b <= L0) otherBase = Math.min(rules.SITE_AM_BREAK, workedTotal);
+      else if (a >= L1) otherBase = Math.min(rules.SITE_PM_BREAK, workedTotal);
+      else otherBase = Math.min(rules.SITE_AM_BREAK, lenWithin_(worked, a, L0)) + Math.min(rules.SITE_PM_BREAK, lenWithin_(worked, L1, b));
+    } else if (mode === 'NIGHT') {
+      otherBase = Math.min(rules.NIGHT_BREAK, workedTotal);
+    }
+    var lunch = lunchLen > 0 ? { from: L0, to: L1 } : null;
+    if (otherBase >= workedTotal) {
+      warnings.push('NO_WORK');
+      return {
+        rawStay: rawStay, deemedExcluded: rawStay - adjustedStay, adjustedStay: adjustedStay, adjArrive: a, adjLeave: b,
+        lunch: lunch, otherBreak: workedTotal, baseBreak: lunchLen + workedTotal, extraBreak: 0, work: 0, warnings: warnings,
+        leaveExcluded: leaveEx, leaveSpans: leaveSpans,
+      };
+    }
+    var L = workedTotal - otherBase;
+    var extra = 0;
+    for (var i = 0; i < rules.EXTRA_BREAKS.length; i++) {
+      var cut = Math.min(rules.EXTRA_BREAKS[i][1], Math.max(0, L - rules.EXTRA_BREAKS[i][0]));
+      L -= cut;
+      extra += cut;
+    }
+    var totalBreak = lunchLen + otherBase + extra;
+    for (var j = 0; j < rules.LEGAL_BREAKS.length; j++) {
+      if (L > rules.LEGAL_BREAKS[j][0] && totalBreak < rules.LEGAL_BREAKS[j][1]) { warnings.push('LEGAL_BREAK_SHORT'); break; }
+    }
+    return {
+      rawStay: rawStay, deemedExcluded: rawStay - adjustedStay, adjustedStay: adjustedStay, adjArrive: a, adjLeave: b,
+      lunch: lunch, otherBreak: otherBase + extra, baseBreak: lunchLen + otherBase, extraBreak: extra, work: L, warnings: warnings,
+      leaveExcluded: leaveEx, leaveSpans: leaveSpans,
+    };
+  }
+
+  /** 休みの無い勤務の休憩と実働（今までの calcShift。中身は変えない） */
+  function calcShiftBase_(shift, breakType, rules) {
     var warnings = [];
     var mode = breakMode_(shift.night === true, breakType, rules, warnings);
     var rawStay = shift.leave - shift.arrive;
@@ -275,6 +395,8 @@ var CalcWorktime = (function () {
     } else {
       spans.push([calc.adjArrive, calc.adjLeave]);
     }
+    // 勤務の中の休みの区間も除く（休暇の計画 第17章 17-1。休みが無ければ何もしない）
+    if (calc.leaveSpans && calc.leaveSpans.length) spans = subtractSpans_(spans, calc.leaveSpans);
 
     // 区切りの時刻（0:00 と深夜の始まり・終わり）で切り、区分ごとに長さを足す
     var cats = {};
@@ -687,6 +809,7 @@ var CalcWorktime = (function () {
     validateShift: validateShift,
     calcShift: calcShift,
     splitShift: splitShift,
+    mergeSpans: mergeSpans_,
     dayBalance: dayBalance,
     legalOvertime: legalOvertime,
     legalOvertimeStandard: legalOvertimeStandard,

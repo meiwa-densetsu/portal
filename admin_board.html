@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>お知らせの管理｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=25">
+<script src="js/boot.js?v=25" defer></script>
+<script src="js/sw_register.js?v=25" defer></script>
+<script src="js/config.js?v=25" defer></script>
+<script src="js/store.js?v=25" defer></script>
+<script src="js/ui.js?v=25" defer></script>
+<script src="js/api.js?v=25" defer></script>
+<script src="js/report.js?v=25" defer></script>
+<script src="js/guard.js?v=25" defer></script>
+<script src="gen/calc_task.js?v=25" defer></script>
+<script src="js/remind.js?v=25" defer></script>
+<script src="js/portal_text.js?v=25" defer></script>
+<script src="js/page_admin_board.js?v=25" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<div id="admin" hidden>
+  <h1>お知らせの管理</h1>
+  <div id="list-view">
+    <div class="card">
+      <div class="item-actions"><button type="button" id="add" class="btn primary">お知らせを書く</button></div>
+      <ul id="post-list" class="list"></ul>
+    </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+  </div>
+  <form id="edit-view" class="card" novalidate hidden>
+    <h2 id="edit-title">お知らせを書く</h2>
+    <div class="field"><label for="p-title">タイトル</label><input type="text" id="p-title" maxlength="200" autocomplete="off"></div>
+    <div class="field"><label for="p-body">本文</label><textarea id="p-body" rows="8"></textarea>
+      <p class="hint">写真やファイルは、Google ドライブの共有のリンク（https:// で始まる住所）を貼ってください</p></div>
+    <label class="check" for="p-important"><input type="checkbox" id="p-important"> 重要（社員に「読みました」を押してもらう）</label>
+    <div class="field" id="p-target"></div>
+    <div class="field"><label for="p-from">掲載の初め（なくてもよい）</label><input type="date" id="p-from"></div>
+    <div class="field"><label for="p-to">掲載の終わり（なくてもよい）</label><input type="date" id="p-to"></div>
+    <label class="check" for="p-show"><input type="checkbox" id="p-show" checked> 社員のホームに出す</label>
+    <button type="submit" class="btn primary block">保存する</button>
+    <button type="button" id="p-delete" class="btn danger block" hidden>このお知らせを消す</button>
+    <button type="button" id="p-cancel" class="btn block">やめる</button>
+  </form>
+  <div id="readers-view" class="card" hidden>
+    <h2 id="readers-title">読んだ人</h2>
+    <ul id="readers" class="list"></ul>
+    <button type="button" id="readers-back" class="btn block">一覧へ戻る</button>
+  </div>
+</div>
+</main>
+</body>
+</html>

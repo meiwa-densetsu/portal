@@ -24,6 +24,7 @@
           return MP.api.call('auth.changePassword', { current: cur.value, next: next.value }).then(function (r) {
             if (r.ok) {
               store.setToken(r.data.token, shared); // 元と同じ置き場所に
+              if (MP.boot.acceptLogin) MP.boot.acceptLogin(); // 同じタブで正しく token を替えた（ログインの見張りで画面を閉じない。計画 stage4-board-plan.md 21-6）
               return ui.notice('変更しました', '他の端末は、ログインし直しになります。').then(function () {
                 MP.go('home.html');
                 return new Promise(function () {});

@@ -65,6 +65,22 @@
    * bulk.js の EMP_SKIPPED に当たる名前にする）
    */
   var EMP_BOOK_OLD = { '会社カレンダー': 'カレンダー' };
+  /**
+   * 保険の番号・給与の固定の項目の 16 列（計画 stage2-employee-fields-plan.md 4-1。L〜AA 列）。見出しは中の名前と同じ（bulk.js の PAY_EXTRA_HEADERS）。
+   * サーバーの答えに payItems があり、「入れない」を選んでいないときだけ、「1日の所定労働時間」と「状態」の間に入れる。プルダウンは付けない
+   */
+  // bulk.js を読まない画面（会社カレンダーの取り込み。calendar_import.js がこのファイルの下見・セルの読み方だけを使う）でも、
+  // このファイルを読み込めるようにする（読み込むときに bulk.js が無くても止まらない。社員の列は使わないので空）
+  var EMP_BOOK_PAY = bulk ? bulk.PAY_EXTRA_HEADERS.map(function (h, i) { return { book: h, inner: h, width: i < bulk.INS_COLS.length ? 18 : 14 }; }) : [];
+  /** 「数」のマスを誤りにする列（番号の先頭の 0 が消えるため。計画 4-2） */
+  var TEXT_ONLY = bulk ? bulk.INS_COLS.map(function (c) { return c.col; }) : [];
+  var ERR_NUMBER_CELL = '数として保存されています（先頭の 0 が消えることがあります）。マスの書式を文字列にして入れ直してください';
+
+  /** 「社員」のシートの見出し（data と「入れない」の選択で決まる。12 列か 28 列） */
+  function empBookHeaders(data, opt) {
+    if (!bulk.hasPay(data) || (opt && opt.omitPay)) return EMP_BOOK_HEADERS.slice();
+    return EMP_BOOK_HEADERS.slice(0, EMP_BOOK_HEADERS.length - 1).concat(EMP_BOOK_PAY, [EMP_BOOK_HEADERS[EMP_BOOK_HEADERS.length - 1]]);
+  }
   /** 「部署」のシートの見出し（中の名前と同じ。bulk.js の DEPT_HEADERS） */
   var DEPT_BOOK_HEADERS = [
     { book: '部署ID', width: 10 },
@@ -84,7 +100,7 @@
 
   function toInner(header) {
     var h = String(header).trim();
-    var hit = EMP_BOOK_HEADERS.filter(function (x) { return x.book === h; })[0];
+    var hit = EMP_BOOK_HEADERS.concat(EMP_BOOK_PAY).filter(function (x) { return x.book === h; })[0];
     if (hit) return hit.inner;
     return Object.prototype.hasOwnProperty.call(EMP_BOOK_OLD, h) ? EMP_BOOK_OLD[h] : h;
   }
@@ -107,8 +123,21 @@
     return (data.calendars || []).filter(function (c) { return c.active || attached[c.calendarId]; }).map(function (c) { return String(c.name); });
   }
 
-  function guideLines() {
+  /** 保険の番号・給与の列の書き方（その列を入れたファイルだけ） */
+  function payGuideLines() {
     return [
+      { text: '・健康保険の番号: 保険証の記号と番号（例: 1234567-12）。基礎年金番号: 10 けた（ハイフンは無くてよい）。雇用保険の番号: 11 けた。空にすると未登録になります。' },
+      { text: '・保険の番号のマスは、書式を「文字列」のままにしてください（数として入れると、先頭の 0 が消えることがあるため、読み込めません）。' },
+      { text: '・基本給〜交通費・夜勤1日あたりの金額: 円の整数（250000 または 250,000）。日給制の人の基本給は日給です。空は「未入力」で、0 円とは別です。' },
+      { text: '・含み残業時間: 30:00 の形（30 時間）。0:00〜100:00。' },
+      { text: '・金額を変えた行は、「いつから」の日から金額が変わります（空なら今日から）。給与の締め（21 日）に合わせるときは「いつから」に日付を入れてください。金額を変えるときは、権限〜1日の所定労働時間も入れておきます（書き出したままなら入っています）。' },
+      { text: '・生涯設計前払金が、確定拠出年金の上限（設定の値）を超えると注意が出ます（登録はできます）。' },
+      { text: '・保険の番号・給与の列を消したファイル（前に書き出したファイルなど）を読み込むと、その項目は今のまま変わりません。' },
+    ];
+  }
+
+  function guideLines(withPay) {
+    var lines = [
       { text: '「いつから（適用開始日）」が空の行は、変えた内容が今日からになります。前からの内容そのものを直したいとき（入れ間違いの直しなど）は、その行の「いつから」に、直したい行の日付を入れてください（社員の管理の画面の「履歴」に出ている日付）。', bold: true },
       { text: '' },
       { text: '■ 使い方', bold: true },
@@ -136,13 +165,16 @@
       { text: '・休憩方式・会社カレンダーは、その人の部署で決まります（「部署」のシートで選びます）。' },
       { text: '・状態: 見るだけの列です。書き換えても何も変わりません。' },
       { text: '・権限〜1日の所定労働時間は、新しい人には全部入れます。今いる人は、変えない所はそのままにしておきます。' },
+    ];
+    if (withPay) lines = lines.concat(payGuideLines());
+    return lines.concat([
       { text: '' },
       { text: '■ 気を付けること', bold: true },
-      { text: '・このファイルには個人情報（名前・生年月日・入社日）が入っています。取り扱いに注意し、要らなくなったら消してください。' },
+      { text: '・このファイルには個人情報（名前・生年月日・入社日・保険の番号・給与の金額）が入っています。共有のフォルダ・メールに置かず、要らなくなったら消してください。' },
       { text: '・式（= で始まるもの）は読み込めません。値として入れてください。' },
       { text: '・「選択肢」のシートは、▼の一覧の元です。書き換えないでください。「選択肢」と、この「書き方」のシートは、読み込みでは使いません。' },
       { text: '・確かめているのは、Excel（Windows）で保存したファイルだけです。ほかのソフトで保存し直したファイルは、読めないことがあります。' },
-    ];
+    ]);
   }
 
   /**
@@ -152,8 +184,10 @@
    *               { name, kind: 'guide', width, lines: [{ text, bold }] } ],                          … 書き方
    *     names: [{ name, ref }] }                                                                      … 名前の付いた範囲
    */
-  function sheetsOf(data) {
+  function sheetsOf(data, opt) {
     var o = data.options;
+    var empHeads = empBookHeaders(data, opt);
+    var withPay = empHeads.length > EMP_BOOK_HEADERS.length;
     function table(name, heads, rows) {
       var lists = [];
       heads.forEach(function (h, i) { if (h.list) lists.push({ col: i + 1, name: h.list, allowBlank: STRICT_LISTS.indexOf(h.list) < 0 }); });
@@ -177,10 +211,10 @@
     return {
       sheets: [
         table(SHEET.DEPT, DEPT_BOOK_HEADERS, bulk.departmentRows(data)),
-        table(SHEET.EMP, EMP_BOOK_HEADERS, bulk.employeeRows(data)),
+        table(SHEET.EMP, empHeads, bulk.employeeRows(data, { omitPay: !withPay })),
         { name: SHEET.CHOICES, kind: 'choices', headers: choices.map(function (c) { return c.head; }), widths: choices.map(function () { return 18; }),
           columns: choices.map(function (c) { return c.values; }) },
-        { name: SHEET.GUIDE, kind: 'guide', width: 110, lines: guideLines() },
+        { name: SHEET.GUIDE, kind: 'guide', width: 110, lines: guideLines(withPay) },
       ],
       names: names,
     };
@@ -211,8 +245,9 @@
     if (value !== undefined) cell.value = String(value);
   }
 
-  function build(ExcelJS, data) {
-    var shape = sheetsOf(data);
+  /** opt.omitPay … 保険の番号・給与の金額の列を入れない（計画 4-3 の「入れない」） */
+  function build(ExcelJS, data, opt) {
+    var shape = sheetsOf(data, opt);
     var wb = new ExcelJS.Workbook();
     wb.creator = '名和電設ポータル';
     wb.lastModifiedBy = '名和電設ポータル';
@@ -720,7 +755,7 @@
   // ---------------------------------------------------------------- 読む（ExcelJS）
 
   /** 1枚のシート → { rows: [{ line, cells, errors }] } か { error }。すべてのセルが空の行は飛ばす */
-  function readSheet(ws, name) {
+  function readSheet(ws, name, textOnly) {
     // 行の数を先に見る（列の数は全部の行を回って数えるので、行の番号が大きいと時間がかかる。Codex 3 回目 medium）
     var rowCount = ws.rowCount;
     if (rowCount > BULK_BOOK.ROWS_MAX) return { error: '「' + name + '」のシートの行が多すぎます（' + BULK_BOOK.ROWS_MAX + ' 行まで）' };
@@ -736,6 +771,8 @@
         // 結合したセルは、先頭だけに値があるものとして読む（ほかは空）
         var merged = cell.master && cell.master !== cell && cell.master.address !== cell.address;
         var t = merged ? { text: '' } : cellText(cell.value);
+        // 番号の列（textOnly の見出しの列）のマスが「数」として保存されていたら、その行の誤り（先頭の 0 が消えていることがある。計画 4-2）
+        if (!t.error && heads && textOnly && textOnly.indexOf(heads[c - 1]) >= 0 && typeof cell.value === 'number') t = { error: ERR_NUMBER_CELL };
         if (t.error) {
           var head = heads && heads[c - 1] ? '（' + heads[c - 1] + '）' : '';
           errors.push(colLetter(c) + ' 列' + head + ': ' + t.error);
@@ -779,7 +816,7 @@
       for (var i = 0; i < want.length; i++) {
         var ws = wb.getWorksheet(want[i][0]);
         if (!ws) return { error: '「' + want[i][0] + '」のシートがありません（書き出したファイルを使ってください）' };
-        var s = readSheet(ws, want[i][0]);
+        var s = readSheet(ws, want[i][0], want[i][0] === SHEET.EMP ? TEXT_ONLY : null);
         if (s.error) return { error: s.error };
         out[want[i][1]] = s.rows;
       }
@@ -790,6 +827,7 @@
 
   var api = {
     BULK_BOOK: BULK_BOOK, SHEET: SHEET, EMP_BOOK_HEADERS: EMP_BOOK_HEADERS, DEPT_BOOK_HEADERS: DEPT_BOOK_HEADERS,
+    EMP_BOOK_PAY: EMP_BOOK_PAY, TEXT_ONLY: TEXT_ONLY, ERR_NUMBER_CELL: ERR_NUMBER_CELL, empBookHeaders: empBookHeaders,
     STRICT_LISTS: STRICT_LISTS, toInner: toInner, colLetter: colLetter, sheetsOf: sheetsOf, fileName: fileName, build: build, toBlob: toBlob,
     cellText: cellText, zipSummary: zipSummary, precheck: precheck, rangeArea: rangeArea, countNames: countNames, read: read,
   };

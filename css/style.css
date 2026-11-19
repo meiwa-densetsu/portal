@@ -489,3 +489,70 @@ button.person-head { cursor: pointer; }
 .import-row input[type="text"] { min-width: 0; width: 100%; }
 .import-note { grid-column: 2; }
 .import-bad input[type="text"] { border-color: var(--c-danger); }
+
+/* ---- 社員の管理: 給与の固定の項目の囲み・本人の保険の番号（計画 stage2-employee-fields-plan.md 第3章） ---- */
+.subbox { border: 1px solid var(--c-line); border-radius: var(--radius); padding: var(--sp-3); margin-bottom: var(--sp-4); }
+.subbox h3 { font-size: var(--fs-base); margin: 0 0 var(--sp-2); }
+.pay-unreadable:not([hidden]) { color: var(--c-warn); font-weight: 700; }
+dl.kv dd { overflow-wrap: anywhere; }
+.my-number { font-variant-numeric: tabular-nums; font-size: 1.2em; font-weight: 700; letter-spacing: 0.05em; }
+
+/* ---- 給与の目安（admin_pay.html。計画 stage3-pay-estimate-plan.md 第5章・13-8）。参考の列は色を変える（合計には入っていない） ---- */
+.pay-scroll { width: 100%; max-width: 100%; overflow-x: auto; border: 1px solid var(--c-line); border-radius: var(--radius); margin-bottom: var(--sp-4); }
+table.pay-table { font-size: var(--fs-small); }
+table.pay-table th, table.pay-table td { white-space: nowrap; padding: var(--sp-1) var(--sp-2); }
+table.pay-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.pay-table td.pay-sum { font-weight: 700; }
+table.pay-table td.pay-notes { white-space: normal; min-width: 16em; }
+.pay-ref { background: var(--c-warn-weak); }
+table.pay-table th.pay-ref { color: var(--c-warn); }
+dl.kv.pay-ref { padding: var(--sp-2); border-radius: var(--radius); }
+.pay-total strong { font-size: 1.15em; }
+.pay-ref-line { font-size: var(--fs-small); background: var(--c-warn-weak); border-radius: var(--radius); padding: var(--sp-1) var(--sp-2); overflow-wrap: anywhere; }
+.pay-notes { overflow-wrap: anywhere; }
+.pay-detail { margin-top: var(--sp-2); }
+/* ---- 段階4: 社内ポータル（お知らせ・受付・安否確認。計画 stage4-board-plan.md）---- */
+.safety-bar { position: sticky; top: 0; z-index: 9; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  background: var(--c-danger-weak); border-bottom: 2px solid var(--c-danger); padding: var(--sp-2) var(--sp-3); }
+.safety-bar-text { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; font-weight: 700; color: var(--c-danger); }
+.safety-card { border-color: var(--c-danger); background: var(--c-danger-weak); }
+.safety-card.done { border-color: var(--c-line); background: var(--c-surface); }
+.safety-head { margin: 0 0 var(--sp-2); font-weight: 700; font-size: 1.1em; color: var(--c-danger); overflow-wrap: anywhere; }
+.safety-card.done .safety-head { color: var(--c-text); }
+.item-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin-top: var(--sp-1); }
+.list a.item-title { display: inline-flex; align-items: center; min-height: var(--tap); overflow-wrap: anywhere; }
+.post-body { overflow-wrap: anywhere; }
+.post-line { margin: 0 0 var(--sp-1); white-space: pre-wrap; }
+.post-body a { display: inline-block; min-height: var(--tap); line-height: var(--tap); overflow-wrap: anywhere; }
+.check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 0 var(--sp-2); margin-top: var(--sp-2); }
+.target-picker select { width: 100%; }
+.choice-grid { display: grid; grid-template-columns: 1fr; gap: var(--sp-2); }
+.choice-grid .btn { min-height: 64px; font-size: 1.15em; }
+.choice-grid .btn[aria-pressed="true"] { color: var(--c-primary-text); background: var(--c-primary); border-color: var(--c-primary); }
+.choice-grid .btn.help[aria-pressed="true"] { background: var(--c-danger); border-color: var(--c-danger); }
+.choice-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.list a.item-title { color: var(--c-primary); }
+.choice-row .btn { flex: 1 1 6rem; }
+.choice-row .btn[aria-pressed="true"] { color: var(--c-primary-text); background: var(--c-primary); border-color: var(--c-primary); }
+.send-state { font-weight: 700; overflow-wrap: anywhere; }
+.send-state.ok { color: var(--c-ok); }
+.send-state.wait { color: var(--c-warn); }
+.send-state.bad { color: var(--c-danger); }
+.line-text { width: 100%; min-height: 6rem; }
+.order-line { display: grid; grid-template-columns: 1fr 1fr 5rem; gap: var(--sp-2); align-items: end; }
+.option-row { display: grid; grid-template-columns: 1fr auto; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-2); }
+@media (min-width: 720px) { .choice-grid { grid-template-columns: repeat(3, 1fr); } }
+.result-scroll { overflow-x: auto; max-width: 100%; }
+.confirm-cell { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 14rem; }
+.result-scroll .summary-table td { vertical-align: middle; }
+
+/* ---- 休暇（段階2。計画 stage2-leave-plan.md 第11章） ---- */
+.leave-banner a { font-weight: 700; display: block; min-height: 44px; line-height: 44px; }
+.leave-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+@media (min-width: 900px) { .leave-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
+.leave-item.off { opacity: 0.6; }
+.leave-days { width: 5rem; }
+.leave-mark { display: inline-block; font-weight: 700; padding: 0 var(--sp-1); border: 1px solid var(--c-line); border-radius: var(--radius); }
+.leave-auto { color: var(--c-sub); font-size: var(--fs-small); }
+dl.leave-kv dd { overflow-wrap: anywhere; }
+#cands input, #cands select, #people input, .subbox input, .subbox select { min-height: 44px; }

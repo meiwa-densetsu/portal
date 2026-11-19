@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>安否確認の一覧｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=25">
+<script src="js/boot.js?v=25" defer></script>
+<script src="js/sw_register.js?v=25" defer></script>
+<script src="js/config.js?v=25" defer></script>
+<script src="js/store.js?v=25" defer></script>
+<script src="js/ui.js?v=25" defer></script>
+<script src="js/api.js?v=25" defer></script>
+<script src="js/report.js?v=25" defer></script>
+<script src="js/guard.js?v=25" defer></script>
+<script src="gen/calc_task.js?v=25" defer></script>
+<script src="js/remind.js?v=25" defer></script>
+<script src="js/page_admin_safety.js?v=25" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+<div id="admin" hidden>
+  <h1>安否確認</h1>
+  <div id="start-box" class="card" hidden>
+    <h2>安否確認を始める</h2>
+    <div class="field"><label for="s-title">題</label><input type="text" id="s-title" maxlength="100" autocomplete="off" value="安否確認"></div>
+    <label class="check" for="s-training"><input type="checkbox" id="s-training"> 訓練（メールの件名などに【訓練】と付きます）</label>
+    <button type="button" id="start" class="btn primary block">始める</button>
+  </div>
+  <div id="check-box" class="card" hidden>
+    <p id="check-title" class="safety-head"></p>
+    <p id="check-counts" class="sub"></p>
+    <p id="check-updated" class="sub"></p>
+    <div id="line-box" hidden>
+      <label for="line-text">LINE のグループに貼る文</label>
+      <textarea id="line-text" class="line-text" readonly></textarea>
+      <button type="button" id="copy" class="btn block">文を写す</button>
+    </div>
+    <button type="button" id="end" class="btn danger block" hidden>この安否確認を終える</button>
+  </div>
+  <div class="card">
+    <h2 id="list-head">答え</h2>
+    <ul id="rows" class="list"></ul>
+  </div>
+  <div class="card" id="history-box" hidden>
+    <h2>これまでの安否確認</h2>
+    <ul id="history" class="list"></ul>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

@@ -4,6 +4,7 @@
  *   MP.api.call(action, args, opts) → Promise<{ ok: true, data } | { ok: false, code, message }>
  *     opts.requestId … 送り直すときに同じものを使う保存（社員マスタ）で渡す。無ければ毎回新しく作る
  *     opts.raw       … 共通の扱い（下の表）をせず、結果をそのまま返す（ログアウト用）
+ *     opts.leaveOnUnauthorized … raw でも、UNAUTHORIZED のときだけは、ログインの記憶を消し・本文を消し・ログインの画面へ移す（安否の送信・読み直し。計画 stage4-board-plan.md 24-15）
  *     opts.keep      … ['FORBIDDEN'] など。その code だけ共通の扱いをせず返す（タスクの列。ほかの code は今どおり）
  *   答えに serverMs（サーバーの中の処理時間・ミリ秒）があれば res.serverMs に入れる。serverPhases（区切りごとの時間）は決まった鍵だけ res.serverPhases に
  *   res.sentMark … 送ったときのログインの目印（MP.store.tokenMark()）。控えを書く前に、今のログインと同じかを確かめるため
@@ -81,6 +82,9 @@
     'report.period', 'report.admin.legal', 'report.admin.closingList', 'report.admin.closingCheck', 'report.admin.changes', 'report.admin.export',
     'report.manager.list', 'task.month', 'task.reminders', 'task.recurring.list', 'task.admin.export',
     'share.mine', 'share.received', 'share.view'].forEach(function (a) { READ_ONLY[a] = true; });
+  // 段階4（計画 stage4-board-plan.md）: 読むだけの処理。board.get は「読んだ」を書くが 1 人 1 行で、何度届いても結果は同じなので入れる
+  ['portal.home', 'board.list', 'board.get', 'board.readers', 'board.admin.list', 'links.admin.list', 'form.get', 'form.result', 'form.admin.list',
+    'safety.get', 'safety.list'].forEach(function (a) { READ_ONLY[a] = true; });
 
   function network() { return { ok: false, code: 'NETWORK', message: NETWORK_TEXT }; }
 
@@ -132,12 +136,13 @@
    *   { kind: 'fetch' | 'timeout' | 'notJson' | 'badShape', ms, status, host, redirected, page }（token・args・入力の中身・本文の文字は入れない）
    * timeoutMs … この送信で待つ長さ（送り直しは、全体の 60 秒の残りだけ）
    */
-  function send(action, args, requestId, viewAs, timeoutMs) {
+  function send(action, args, requestId, viewAs, timeoutMs, token) {
     var ctrl = new AbortController();
     var timedOut = false;
     var timer = setTimeout(function () { timedOut = true; ctrl.abort(); }, timeoutMs);
     var t0 = Date.now();
-    var env = { action: action, apiVersion: MP.config.API_VERSION, token: MP.store.token(), requestId: requestId, args: args || {} };
+    // token … 呼んだ側が確かめた token（確かめた後に保存領域を読み直さない。計画 stage4-board-plan.md 22-2）
+    var env = { action: action, apiVersion: MP.config.API_VERSION, token: token, requestId: requestId, args: args || {} };
     if (viewAs) env.viewAs = viewAs.employeeId; // 社員の画面を見ているときだけ（計画 stage1-viewas-plan.md 1-1）
     var body = JSON.stringify(env);
     var info = { status: 0, host: '', redirected: false };
@@ -178,7 +183,9 @@
   }
 
   /** 2 回とも駄目（または送り直さない処理で駄目）だったときの控えを残す（「詳しく」で出す） */
-  function remember(action, fails, retried) {
+  function remember(action, fails, retried, sentMark) {
+    // ログインが変わった後（閉じた画面）の通信の失敗は、保存領域に控えない（計画 stage4-board-plan.md 21-6）
+    if (sentMark !== undefined && (MP.store.tokenMark() !== sentMark || (MP.boot && MP.boot.closed && MP.boot.closed()))) return null;
     var rec = {
       at: Date.now(), action: String(action), retried: !!retried,
       tries: fails.map(function (f) {
@@ -203,27 +210,34 @@
    * 送る。読むだけの処理は、決まった失敗のときだけ、少し待って同じ requestId で 1 回だけ送り直す。
    * 待つ長さは、最初の送信からの全体で 60 秒（送り直しは残りだけ待つ。残りが RETRY_MIN_LEFT_MS より少なければ送り直さない）
    */
-  function sendWithRetry(action, args, requestId, viewAs, sentMark) {
+  function sendWithRetry(action, args, requestId, viewAs, sentMark, token) {
     var deadline = Date.now() + TIMEOUT_MS;
-    return send(action, args, requestId, viewAs, TIMEOUT_MS).then(function (first) {
+    return send(action, args, requestId, viewAs, TIMEOUT_MS, token).then(function (first) {
       if (!first.fail) return first.res;
       if (!retryable(action, first.fail) || deadline - Date.now() - RETRY_WAIT_MS < RETRY_MIN_LEFT_MS) {
-        remember(action, [first.fail], false);
+        remember(action, [first.fail], false, sentMark);
         return first.res;
       }
       return new Promise(function (resolve) { setTimeout(resolve, RETRY_WAIT_MS); }).then(function () {
         // 待つ間にほかのタブでログインが替わったら送り直さない（新しいログインの答えに、古いログインの目印が付くのを防ぐ。版 19 の内部レビュー low）
         if (MP.store.tokenMark() !== sentMark) return null;
-        return send(action, args, requestId, viewAs, Math.max(0, deadline - Date.now()));
+        if (MP.boot && MP.boot.loginOk && !MP.boot.loginOk()) return { closed: true }; // ログインが変わって閉じた画面からは送り直さない（計画 stage4-board-plan.md 22-2）
+        if (halted(action)) { dropped[action] = (dropped[action] || 0) + 1; return { closed: true }; } // 日報の 4 画面が「読み込み直す」だけになった後は送り直さない（1 回目の返事は渡さなかった数に入れる）
+        return send(action, args, requestId, viewAs, Math.max(0, deadline - Date.now()), token); // 1 回目と同じ、確かめた token で送る
       }).then(function (second) {
-        if (!second) { remember(action, [first.fail], false); return first.res; }
-        if (second.fail) remember(action, [first.fail, second.fail], true);
+        if (second && second.closed) return never();
+        if (!second) { remember(action, [first.fail], false, sentMark); return first.res; }
+        if (second.fail) remember(action, [first.fail, second.fail], true, sentMark);
         return second.res;
       });
     });
   }
 
   var never = function () { return new Promise(function () {}); };
+  /** 日報の 4 画面が「読み込み直す」だけになった後か（MP.ui.stopped。ほかの画面では常に false） */
+  // 管理者に知らせる送信（system.report）だけは止めない（最初の表示の問題の知らせのボタンは、壊れた後も押せるため）
+  var halted = function (action) { return action !== 'system.report' && !!(MP.ui && MP.ui.stopped && MP.ui.stopped()); };
+  var dropped = {}; // 止めた後に届いて、渡さなかった返事の数（処理の名前ごと。試験で、その返事が届いたことを確かめるため）
 
   /**
    * 社員の画面を見ているときの答えの確かめ（計画 stage1-viewas-plan.md 1-6。今までの共通の扱い common より前）。
@@ -272,6 +286,18 @@
   var leaveFns = []; // 共通の扱いが画面を移す直前に呼ぶ関数（MP.api.onLeave）
   function leaving() { leaveFns.forEach(function (fn) { try { fn(); } catch (e) { /* 移るのを止めない */ } }); }
 
+  /** ログインが切れた: ①ログインの記憶を消す ②移る前に本文を消す ③ログインの画面へ移す（24-14・24-15。共通の扱いと leaveOnUnauthorized の raw の 1 か所） */
+  function loginExpired() {
+    // 共有のログインの安否の控えは、ログインが切れても消す（21-5。次に使う人が前の人の答えを送らない）。消える答えがあれば知らせる（24-15）
+    var lost = MP.store.sharedSafetyPending ? MP.store.sharedSafetyPending() : 0;
+    MP.store.clearToken();
+    if (MP.boot && MP.boot.clearForLogout) MP.boot.clearForLogout();
+    MP.store.setFlash(lost ? 'もう一度ログインしてください。送れなかった安否確認の答えがありました。ログインした後に、もう一度答えてください' : 'もう一度ログインしてください');
+    leaving();
+    MP.go('login.html');
+    return never();
+  }
+
   function common(res) {
     if (res.ok) { MP.store.setReloaded(''); return res; }
     var here = window.location.pathname;
@@ -285,11 +311,7 @@
         window.location.reload();
         return never();
       case 'UNAUTHORIZED':
-        MP.store.clearToken();
-        MP.store.setFlash('もう一度ログインしてください');
-        leaving();
-        MP.go('login.html');
-        return never();
+        return loginExpired();
       case 'PASSWORD_CHANGE_REQUIRED':
         leaving();
         MP.go('password.html');
@@ -363,10 +385,25 @@
       // noViewAs … 社員の画面を見る開始・終了（本人の管理者として送る）
       var sentAs = o.noViewAs ? null : MP.store.viewAs();
       // sentMark … 送ったときのログインの目印（認証・認可には使わない）。控えを書くときに、今のログインと同じかを確かめる（計画 stage2-task-open-speed-plan.md 1-2）
-      var sentMark = MP.store.tokenMark();
-      var p = sendWithRetry(action, args, o.requestId || newRequestId(), sentAs, sentMark).then(function (res) { return checkViewAs(res, sentAs); })
+      // token は 1 回だけ読み、その token で確かめて、その token を送る（確かめと送るの間に読み直さない。計画 stage4-board-plan.md 22-2）
+      var token = MP.store.token();
+      var sentMark = MP.store.markOf(token);
+      // ログインが変わって閉じた画面（または閉じるべき画面）からは送らない。返事も、扱う最初に確かめる（raw も。計画 stage4-board-plan.md 21-6・22-2）
+      var watched = !!(MP.boot && MP.boot.loginOk);
+      if (watched && !MP.boot.loginOk(sentMark)) return never();
+      // 日報の 4 画面が「読み込み直す」だけになった後は送らない。届いた返事も渡さない（後の処理を起こさない。解決も拒否もしない）
+      if (halted(action)) return never();
+      var p = sendWithRetry(action, args, o.requestId || newRequestId(), sentAs, sentMark, token).then(function (res) {
+        if (halted(action)) { dropped[action] = (dropped[action] || 0) + 1; return never(); }
+        if (watched && !MP.boot.loginOk()) return never();
+        return checkViewAs(res, sentAs);
+      })
         .then(function (res) { if (res && typeof res === 'object') res.sentMark = sentMark; return res; });
-      if (o.raw) return p.then(function (res) { return track(action, res, true); });
+      if (o.raw) return p.then(function (res) {
+        // 送ったときと同じログインのまま UNAUTHORIZED（ログインが切れた）なら、共通の扱いと同じく移る（安否の送り直しを繰り返さない。24-15）
+        if (o.leaveOnUnauthorized && token && res && res.code === 'UNAUTHORIZED' && sentMark === MP.store.tokenMark()) { track(action, res, true); return loginExpired(); }
+        return track(action, res, true);
+      });
       return p.then(function (res) {
         // 送ってから答えが届くまでに、ほかのタブでログインが替わった（ログインし直し・ログアウト）→ その答えは前のログインのもの。
         // 画面に出さず、共通の扱い（UNAUTHORIZED で今のログインを消すなど）もせず、今のログインで開き直す（版 19 の Codex 実装レビュー 1 回目 high・medium）
@@ -377,5 +414,10 @@
     },
     /** 共通の扱いが画面を移す直前に呼ぶ関数を足す（送り残しの「離れますか」を止めるため。計画 第5章） */
     onLeave: function (fn) { leaveFns.push(fn); },
+    /** 「読み込み直す」だけになった後に届いて、渡さなかった返事の数（action を渡すとその処理だけ。渡さないと全部） */
+    droppedCount: function (action) {
+      if (action) return dropped[action] || 0;
+      return Object.keys(dropped).reduce(function (n, k) { return n + dropped[k]; }, 0);
+    },
   };
 })();

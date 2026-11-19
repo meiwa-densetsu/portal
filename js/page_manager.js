@@ -8,6 +8,7 @@
   'use strict';
   MP.boot.start(function () {
     var ui = MP.ui, el = ui.el, CW = window.CalcWorktime;
+    ui.watchBroken(['page_manager.js']); // このファイルから出て誰も拾わなかった例外が出たら「読み込み直す」だけにする（保険）
     var DOW = ['日', '月', '火', '水', '木', '金', '土'];
     var data = null, deptId = null;
     var today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
@@ -19,20 +20,31 @@
       var p = first ? MP.guard.enter({ load: { action: 'report.manager.list', args: args } })
         : MP.api.call('report.manager.list', args).then(function (res) { return { res: res }; });
       return p.then(function (r) {
-        if (!r.res.ok) { ui.pageMessage(r.res.message, 'error'); return; }
+        if (ui.isBroken()) return false; // 「読み込み直す」だけにした後に届いた返事では、画面を描き直さない
+        if (!r.res.ok) { ui.pageMessage(r.res.message, 'error'); return false; }
         data = r.res.data;
-        ui.$('view').hidden = false;
-        render();
+        try {
+          ui.$('view').hidden = false;
+          render();
+        } catch (e) {
+          ui.showBroken(); // 描画が止まったら、画面の中身を隠して「読み込み直す」だけを出す（前の期間・部署の表示やリンクを残さない）
+          throw e;
+        }
+        return true;
       });
     }
 
     function cellOf(d) {
       if (d.state === 'out') return { text: '－', title: '見られる部署にいない日', cls: 'out' };
       var due = d.companyType && d.companyType !== 'H' && d.date <= data.today; // 会社の出勤日で今日まで
+      // 休暇（段階2・Q19）: 有給・振替・欠勤の名前（看護・介護は「休暇」）
+      if (d.leave && d.leave.label && d.state === 'missing') return { text: d.leave.label.charAt(0), title: d.leave.label + ' ' + fmt(d.leave.minutes), cls: '' };
       if (d.state === 'missing') return { text: due ? '未' : '', title: '未入力', cls: due ? 'missing' : '' };
+      if (d.leave && d.leave.label && d.state === 'workless') return { text: d.leave.label.charAt(0), title: d.leave.label + ' ' + fmt(d.leave.minutes) + '（時刻の無い日報）', cls: '' };
       if (d.state === 'workless') return { text: '0:00', title: '勤務なし', cls: '' };
       var t = [d['昼_出社'] ? d['昼_出社'] + '〜' + d['昼_退社'] : '', d['夜_出社'] ? '夜 ' + d['夜_出社'] + '〜' + d['夜_退社'] : ''].filter(Boolean).join(' ');
-      return { text: fmt(d['実働']) + (d.furikae ? '+' : ''), title: t + (d.furikae ? '（所定を超えた ' + fmt(d.furikae) + '）' : ''), cls: d.furikae ? 'over' : '' };
+      var lv = d.leave && d.leave.label ? '（' + d.leave.label + ' ' + fmt(d.leave.minutes) + '）' : '';
+      return { text: fmt(d['実働']) + (d.furikae ? '+' : '') + (lv ? '・' + d.leave.label.charAt(0) : ''), title: t + (d.furikae ? '（所定を超えた ' + fmt(d.furikae) + '）' : '') + lv, cls: d.furikae ? 'over' : '' };
     }
 
     function render() {
@@ -59,13 +71,24 @@
       ui.$('table').appendChild(body);
     }
 
-    ui.$('prev').addEventListener('click', function () { ui.run(function () { return load(data.prevDate); }); });
-    ui.$('next').addEventListener('click', function () { if (data.nextDate) ui.run(function () { return load(data.nextDate); }); });
-    ui.$('dept').addEventListener('change', function (ev) {
-      deptId = ev.target.value || null;
-      ev.target.disabled = true;
-      ui.run(function () { return load(data.period.from); }).then(function () { ev.target.disabled = false; });
-    });
+    /**
+     * 読み込み直す。ui.run は終わるとボタンを押せる形に戻すので、「次」は終わった後に決め直す（給与の目安・法律の時間外の画面と同じ）。
+     * ui.run が止めるのはボタンだけなので、部署の選択も止める。読めなかった・動かなかったときは、部署の選択を出ている一覧の部署に戻す
+     */
+    function reload(date, nextDept) {
+      var sel = ui.$('dept'), before = deptId, started = false;
+      var end = function (loaded) {
+        if (!started) { sel.value = deptId || ''; return; } // ほかの送信の途中で動かなかった
+        sel.disabled = false;
+        if (loaded !== true) { deptId = before; sel.value = before || ''; }
+        if (data) ui.$('next').disabled = !data.nextDate;
+      };
+      ui.run(function () { started = true; sel.disabled = true; deptId = nextDept; return load(date); }).then(ui.drawing(end), ui.drawing(function (e) { end(false); throw e; })); // ui.run の後の決め直しも包む
+    }
+    // 押した・選んだときの処理は、すべて ui.drawing で包む（途中で止まったら「読み込み直す」だけにする）
+    ui.$('prev').addEventListener('click', ui.drawing(function () { reload(data.prevDate, deptId); }));
+    ui.$('next').addEventListener('click', ui.drawing(function () { if (data.nextDate) reload(data.nextDate, deptId); }));
+    ui.$('dept').addEventListener('change', ui.drawing(function (ev) { reload(data.period.from, ev.target.value || null); }));
     return load(today, true);
   });
 })();

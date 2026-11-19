@@ -67,6 +67,8 @@
       if (res.ok && res.data && Array.isArray(res.data.items) && typeof res.data.nowMs === 'number') {
         lastFetch = Date.now();
         MP.store.setRemind(meId, { at: lastFetch, offset: res.data.nowMs - lastFetch, items: res.data.items, more: res.data.more === true });
+        // 安否確認の印（計画 stage4-board-plan.md 11-5）。古いサーバーの答えには無い（知らない項目は読まない）・読めなければ null（帯は前のまま）
+        if (Object.prototype.hasOwnProperty.call(res.data, 'safety') && res.data.safety) safetyUpdate(res.data.safety, res.sentMark);
         return 'ok';
       }
       if (!res.ok && (res.code === 'NETWORK' || res.code === 'BUSY')) { waitUntil = Date.now() + SOFT_WAIT_MS; return 'soft'; }
@@ -85,9 +87,16 @@
     return dueOf(c.items, Date.now() + c.offset, Object.assign({}, MP.store.remindDone(), shown));
   }
 
+  /**
+   * 日報の 4 画面が「読み込み直す」だけになった後か（MP.ui.stopped）。そのタブでは、リマインダーは何もしない（帯を出さず、共有の「知らせた」印も書かない）。
+   * 知らせるのは、ほかのタブか、読み込み直した後に任せる
+   */
+  function halted() { return !!(MP.ui && MP.ui.stopped && MP.ui.stopped()); }
+
   /** 印を「読む → 無ければ書く」を、タブ 1 つずつで行う（使えるブラウザだけ）。返す値: 自分が書けた鍵 */
   function claim(keys) {
     var run = function () {
+      if (halted()) return []; // 壊れたタブは印を書かない（書く直前にも確かめる）
       var done = MP.store.remindDone();
       var mine = keys.filter(function (k) { return !done[k]; });
       if (mine.length) MP.store.addRemindDone(mine);
@@ -108,6 +117,8 @@
   function renderBar() {
     var ui = MP.ui;
     var bar = document.getElementById('remind-bar');
+    // 日報の 4 画面が「読み込み直す」だけになった後は出さない（帯のリンク・ボタンを残さない）
+    if (ui && ui.stopped && ui.stopped()) { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); return; }
     if (!bars.length && !moreNote) { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); return; }
     if (!bar) {
       // ページの先頭に入れる（上に重ねない。上の帯のログアウトなどを隠さず、内容を下へ押し下げる）
@@ -156,9 +167,10 @@
    * 出す直前の確かめをして、出す。onlyKeys があれば、その鍵のものだけを帯に出す（ほかのタブが印を書いたとき。通知は出さない）
    */
   function confirmAndFire(onlyKeys) {
+    if (halted()) return Promise.resolve();
     var fresh = Date.now() - lastFetch < FRESH_MS ? Promise.resolve('ok') : fetch();
     return fresh.then(function (how) {
-      if (how === 'stop' || stopped) return;
+      if (how === 'stop' || stopped || halted()) return;
       var c = cache(); // soft（読めなかった）のときは、前の控えのまま
       if (!c) return;
       if (onlyKeys) {
@@ -194,7 +206,7 @@
   }
 
   function tick() {
-    if (stopped) return;
+    if (stopped || halted()) return; // 壊れたタブは何もしない
     var c = cache();
     if (stopped) return;
     var now = Date.now();
@@ -207,7 +219,7 @@
   }
 
   function evaluate() {
-    if (stopped) return;
+    if (stopped || halted()) return; // 壊れたタブは何もしない（出さないことにした印も書かない）
     var c = cache();
     if (!c) return;
     var r = due(c);
@@ -217,10 +229,37 @@
 
   /** ほかのタブが印を書いた: 増えた鍵のうち、まだこのページで出していないものを、確かめてから帯に出す */
   function onStorage(ev) {
+    if (halted()) return; // 壊れたタブは何もしない
+    if (!stopped && ev.key === 'mp.safety.active') { safetyRender(); return; } // ほかのタブが安否確認の控えを変えた
     if (stopped || ev.key !== MP.store.REMIND_DONE_KEY) return;
     var done = MP.store.remindDone();
     var keys = Object.keys(done).filter(function (k) { return done[k] > 0 && !shown[k] && !handled[k]; }); // 正 = ほかのタブが知らせた（負 = 出さないことにした印は帯にしない）
     if (keys.length) confirmAndFire(keys);
+  }
+
+  /*
+   * 安否確認の帯（計画 stage4-board-plan.md 第5章・11-5）: 動いている確認にまだ答えていなければ、どの画面でも上に赤い帯を出す。
+   * 元にするのは端末の控え mp.safety.active（task.reminders・portal.home・safety.get の答えから、本人のログインのときだけ書く）。安否の画面では出さない
+   */
+  function safetyRender() {
+    var ui = MP.ui;
+    var bar = document.getElementById('safety-bar');
+    var s = meId ? MP.store.safetyActive(meId) : null;
+    var here = /safety\.html$/.test(window.location.pathname);
+    var halted = ui && ui.stopped && ui.stopped(); // 日報の 4 画面が「読み込み直す」だけになった後は出さない（読み込み直せば出る）
+    if (!s || s.answered || here || stopped || halted) { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); return; }
+    if (!bar) {
+      bar = ui.el('div', { id: 'safety-bar', class: 'safety-bar', role: 'alert' });
+      document.body.insertBefore(bar, document.body.firstChild);
+    }
+    ui.clear(bar);
+    bar.appendChild(ui.el('span', { class: 'safety-bar-text', text: (s.training ? '【訓練】' : '') + '安否確認: 答えてください（' + s.title + '）' }));
+    bar.appendChild(ui.el('a', { class: 'btn danger', href: 'safety.html', text: '答える' }));
+  }
+  function safetyUpdate(safety, sentMark) {
+    if (!meId) return;
+    MP.store.setSafetyActive(meId, safety, sentMark);
+    safetyRender();
   }
 
   function permission() {
@@ -241,7 +280,10 @@
       Object.keys(MP.store.remindDone()).forEach(function (k) { shown[k] = true; });
       timer = window.setInterval(tick, cfg().CHECK_SEC * 1000);
       window.setTimeout(tick, 0); // 画面の表示を待たせない
+      safetyRender(); // 安否確認の帯（端末の控えから。計画 stage4-board-plan.md 11-5）
     },
+    /** 安否確認の印を、ほかの答え（portal.home・safety.get）からも受け取る（本人のログインのときだけ控える） */
+    safety: function (safety, sentMark) { if (!stopped && safety) safetyUpdate(safety, sentMark); },
     touch: function () {
       if (stopped) return;
       if (touchTimer) window.clearTimeout(touchTimer);
@@ -251,6 +293,8 @@
       }, cfg().AFTER_OP_SEC * 1000);
     },
     check: function () { tick(); },
+    /** 止める（ログインが変わって画面を閉じたとき。計画 stage4-board-plan.md 20-2）。帯も消す */
+    stop: function () { stop(); bars = []; moreNote = false; renderBar(); var s = document.getElementById('safety-bar'); if (s && s.parentNode) s.parentNode.removeChild(s); },
     permission: permission,
     ask: function () {
       try {

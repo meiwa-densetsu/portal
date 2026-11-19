@@ -9,6 +9,7 @@
   'use strict';
   MP.boot.start(function () {
     var ui = MP.ui;
+    ui.watchBroken(['page_report_grid.js']); // このファイルから出て誰も拾わなかった例外が出たら「読み込み直す」だけにする（保険）
     var CR = window.CalcReport;
     var CW = window.CalcWorktime;
     var GC = MP.gridCore;
@@ -22,6 +23,8 @@
     var VIEW_KEY = 'mp_report_view';
 
     var me = null, data = null, target = null, grid = null, saving = false;
+    var loading = false; // 期間・社員を読み込み直している間（表と保存を止める）
+    var broken = false;  // 読み込んだ後の描画が例外で止まった（出ている見出し・表と data の社員が食い違うかもしれない）。描画が終わるまで、直すのも保存もしない
     var rows = [];   // [{ day, base（サーバーの入力14列）, cur（今の入力）, baseVersion, rid, status, err, server, info }]
 
     function fmt(min) { return min === null || min === undefined ? '' : CW.formatHm(min); }
@@ -79,7 +82,8 @@
         out.info = only ? '時刻の無い施工内容は、昼の欄に移ります' : k === 'night' ? '夜勤として保存します（夜の欄に移ります）' : '日勤として保存します（昼の欄に移ります）';
       });
       if (!x.day.canCalc) return out;
-      var calc = CR.calcDay(slots.row, { date: x.day.date, breakType: x.day.breakType }, CW, R);
+      // 勤務の中の休みは実働から引く（休暇 第17章。サーバーと同じ共有の計算）
+      var calc = CR.calcDay(slots.row, { date: x.day.date, breakType: x.day.breakType, leaves: MP.leaveView.reportLeavesFor(data, x.day.date) }, CW, R);
       if (!calc.ok) { out.first = T.MESSAGES[calc.errors[0].code] || '計算できません'; return out; }
       var ov = CR.checkOverlap(finalRow(i - 1), slots.row, finalRow(i + 1), CW, R);
       if (ov.errors.length) {
@@ -214,7 +218,7 @@
       var dl = ui.clear(ui.$('totals'));
       [['実働の合計', fmt(work) || '0:00'], ['保存していない日', dirty + '日'], ['誤りのある日', errs + '日']]
         .forEach(function (kv) { dl.appendChild(ui.el('dt', { text: kv[0] })); dl.appendChild(ui.el('dd', { text: kv[1] })); });
-      ui.$('save').disabled = saving || !data.editable || MP.guard.viewing(); // 社員の画面を見ている間は保存しない
+      ui.$('save').disabled = saving || loading || broken || !data.editable || MP.guard.viewing(); // 社員の画面を見ている間は保存しない
       renderConflicts();
     }
 
@@ -223,18 +227,20 @@
       var box = ui.$('conflicts');
       box.hidden = !list.length;
       var ul = ui.clear(ui.$('conflict-list'));
+      var busy = saving || loading || broken; // 保存・読み込みの途中に作り直したボタンは ui.run が止めないので、ここで止める（描画が止まった後も）
       list.forEach(function (x) {
         ul.appendChild(ui.el('li', {}, [
           ui.el('div', { class: 'item-title', text: dateLabel(x.day) + ' は他の画面で更新されています' }),
           ui.el('div', { class: 'item-actions' }, [
-            ui.el('button', { type: 'button', class: 'btn', text: '最新の内容にする', on: { click: function () { resolveConflict(x, false); } } }),
-            ui.el('button', { type: 'button', class: 'btn', text: '自分の入力で保存し直す', on: { click: function () { resolveConflict(x, true); } } }),
+            ui.el('button', { type: 'button', class: 'btn', text: '最新の内容にする', disabled: busy, on: { click: ui.drawing(function () { resolveConflict(x, false); }) } }),
+            ui.el('button', { type: 'button', class: 'btn', text: '自分の入力で保存し直す', disabled: busy, on: { click: ui.drawing(function () { resolveConflict(x, true); }) } }),
           ]),
         ]));
       });
     }
 
     function resolveConflict(x, keepMine) {
+      if (saving || loading || broken) return;
       var latest = inputOf(x.server);
       x.base = latest;
       x.baseVersion = x.serverVersion;
@@ -254,35 +260,66 @@
       var p = first ? MP.guard.enter({ load: { action: 'report.period', args: args } })
         : MP.api.call('report.period', args).then(function (res) { return { me: me, res: res }; });
       return p.then(function (r) {
+        if (ui.isBroken()) return; // 「読み込み直す」だけにした後に届いた返事では、画面を描き直さない
         me = r.me;
         if (!r.res.ok) { ui.pageMessage(r.res.message, 'error'); return; }
         data = r.res.data;
-        target = data.employee.employeeId === me.employeeId ? null : data.employee.employeeId;
-        rows = data.days.map(function (d) {
-          var inp = inputOf(d.row);
-          return { day: d, base: inp, cur: inputOf(d.row), baseVersion: d.recordVersion, rid: null, status: '', err: null, server: null, serverVersion: null };
-        });
-        var filled = fillFromTasks();
-        ui.$('view').hidden = false;
-        if (filled.days) ui.pageMessage('完了したタスクから ' + filled.days + ' 日分の施工内容を入れました（黄色の行）' + (filled.cutDays ? '。うち ' + filled.cutDays + ' 日分は、長いため一部だけ' : '') + '。確かめて保存してください', 'info');
-        renderHead();
-        buildColumns();
-        analyzeAll();
-        grid = MP.grid.create(ui.$('grid'), {
-          columns: columns, rowCount: rows.length,
-          rowHead: function (i) {
-            var d = rows[i].day, out = d.state === 'out'; // 部長の範囲外の日
-            return { text: dateLabel(d) + (out ? '（範囲外）' : ''), label: dateLabel(d) + (out ? ' 範囲外' : ''), cls: (d.dow === 0 ? 'sun' : d.dow === 6 ? 'sat' : '') + (d.companyType === 'H' ? ' off' : '') };
-          },
-          value: function (i, c) { var col = columns[c]; return col.kind === 'calc' ? display(i, c) : rows[i].cur[col.key]; },
-          display: display, editable: editable, cellState: cellState, change: change,
-          notify: function (t, k) { ui.pageMessage(t, k === 'ok' ? 'ok' : 'warn'); },
-        });
-        var todayRow = 0;
-        rows.forEach(function (x, i) { if (x.day.date <= data.today) todayRow = i; });
-        grid.select(todayRow, 0);
-        renderSummary();
+        broken = true; // 描画が最後まで終わったら外す
+        try {
+          drawLoaded();
+        } catch (e) {
+          ui.showBroken(); // 描画が止まったら、画面の中身を隠して「読み込み直す」だけを出す（前の社員・期間の表示や押せる物を残さない）
+          throw e;
+        }
+      }).then(null, function (e) {
+        if (broken) { try { lockBroken(); } catch (e2) { /* 画面はもう隠してある */ } }
+        throw e;
       });
+    }
+
+    /** 読み込んだ答え（data）から、行・見出し・表・まとめを作る */
+    function drawLoaded() {
+      target = data.employee.employeeId === me.employeeId ? null : data.employee.employeeId;
+      rows = data.days.map(function (d) {
+        var inp = inputOf(d.row);
+        return { day: d, base: inp, cur: inputOf(d.row), baseVersion: d.recordVersion, rid: null, status: '', err: null, server: null, serverVersion: null };
+      });
+      var filled = fillFromTasks();
+      ui.$('view').hidden = false;
+      if (filled.days) ui.pageMessage('完了したタスクから ' + filled.days + ' 日分の施工内容を入れました（黄色の行）' + (filled.cutDays ? '。うち ' + filled.cutDays + ' 日分は、長いため一部だけ' : '') + '。確かめて保存してください', 'info');
+      renderHead();
+      buildColumns();
+      analyzeAll();
+      grid = MP.grid.create(ui.$('grid'), {
+        columns: columns, rowCount: rows.length,
+        rowHead: function (i) {
+          var d = rows[i].day, out = d.state === 'out'; // 部長の範囲外の日
+          // 休暇（段階2）: 行の見出しに「有」「振」「欠」と時刻（色だけに頼らない。古いサーバーの答えで leave が無くても落ちない）
+          var lv = Array.isArray(d.leave) ? d.leave.map(function (l) { return MP.leaveView.mark(l); }).join(' ') + (d.leaveAuto ? ' 自動' : '')
+            : d.leave && d.leave.label ? d.leave.label : ''; // 部長が他の人を見るときは { label, minutes } だけ
+          return { text: dateLabel(d) + (out ? '（範囲外）' : '') + (lv ? ' ' + lv : ''), label: dateLabel(d) + (out ? ' 範囲外' : '') + (lv ? ' 休み ' + lv : ''), cls: (d.dow === 0 ? 'sun' : d.dow === 6 ? 'sat' : '') + (d.companyType === 'H' ? ' off' : '') };
+        },
+        value: function (i, c) { var col = columns[c]; return col.kind === 'calc' ? display(i, c) : rows[i].cur[col.key]; },
+        display: display, editable: editable, cellState: cellState, change: ui.drawing(change), // 表を直したときの描き直しも包む
+        notify: function (t, k) { ui.pageMessage(t, k === 'ok' ? 'ok' : 'warn'); },
+      });
+      var todayRow = 0;
+      rows.forEach(function (x, i) { if (x.day.date <= data.today) todayRow = i; });
+      grid.select(todayRow, 0);
+      broken = false;
+      renderSummary();
+    }
+
+    /**
+     * 描画が止まった後は、表・保存・表を書き換える道具を押せなくする（ui.run が戻した後にも呼ぶ）。
+     * 描画が終わった後（ui.run の外）に呼ぶと、道具を押せる形に戻す（道具を止めるのはここだけ）
+     */
+    function lockBroken() {
+      ['copy-prev', 'use-pattern', 'bulk', 'revert-row', 'revert-all'].forEach(function (id) { ui.$(id).disabled = broken; });
+      if (!broken) return;
+      if (grid) grid.setLocked(true);
+      ui.$('save').disabled = true;
+      Array.prototype.forEach.call(ui.$('conflict-list').querySelectorAll('button'), function (x) { x.disabled = true; });
     }
 
     function renderHead() {
@@ -316,6 +353,7 @@
     // ------------------------------------------------------------------ 保存（まとめて）
 
     function doSave() {
+      if (loading || saving || broken) return; // 読み込み・保存の途中（ui.run が動かず、止めた表が戻らなくなるため）・描画が止まった後
       if (grid) grid.commitEdit();
       analyzeAll();
       var send = [], skipped = 0, waiting = 0;
@@ -333,12 +371,17 @@
         after();
         return;
       }
-      saving = true;
-      grid.setLocked(true);
-      ui.$('emp-select').disabled = true; // ui.run が止めるのはボタンだけなので、社員の選択も止める
-      after();
-      ui.run(function () {
-        return MP.api.call('report.saveMany', { employeeId: target, days: send.map(function (s) { return s.day; }) }).then(function (res) {
+      ui.run(ui.drawing(function () { // 保存の前後の描き直し。途中で止まったら「読み込み直す」だけにする
+        // 止めるのは、ui.run が実際に動いたときだけ（ほかの送信の途中で動かないと、止めた表が戻らなくなるため）
+        saving = true;
+        grid.setLocked(true);
+        ui.$('emp-select').disabled = true; // ui.run が止めるのはボタンだけなので、社員の選択も止める
+        after();
+        // 呼び出しがその場で例外を投げても、拒否と同じ処理で戻す
+        var call;
+        try { call = MP.api.call('report.saveMany', { employeeId: target, days: send.map(function (s) { return s.day; }) }); } catch (e) { call = Promise.reject(e); }
+        return Promise.resolve(call).then(function (res) {
+          if (ui.isBroken()) return; // 「読み込み直す」だけにした後に届いた返事では、描き直さない
           saving = false;
           grid.setLocked(false);
           ui.$('emp-select').disabled = false;
@@ -370,13 +413,24 @@
           ui.pageMessage(d.saved + ' 日を保存しました' + (d.failed ? '。' + d.failed + ' 日は保存できませんでした（状態の列を見てください）' : '') +
             (skipped ? '。誤りのある ' + skipped + ' 日は送っていません' : ''), d.failed || skipped ? 'warn' : 'ok');
           after();
+        }, function (e) {
+          // 例外で終わったときも、止めた表・社員の選択・保存を戻す（同じ requestId のまま、次の「保存」で送り直す）
+          saving = false;
+          grid.setLocked(false);
+          ui.$('emp-select').disabled = false;
+          send.forEach(function (s) { s.x.status = 'unknown'; });
+          // 通信の例外は、ここで戻して知らせる（画面は使える。描画の例外ではないので「読み込み直す」にはしない）。中身は実行の記録に残す
+          console.error('保存の通信で問題が起きました: ' + (e && e.message ? e.message : e));
+          ui.pageMessage('保存できたか分かりません。もう一度「保存」を押してください（同じ内容は二重になりません）', 'error');
+          after();
         });
-      });
+      }));
     }
 
     // ------------------------------------------------------------------ 元に戻す・前日と同じ・定型パターン・まとめて適用
 
     function setRows(list, make, what) {
+      if (broken) return; // 描画が止まった後（出ている表と data の社員が食い違うかもしれない）
       var n = 0, skip = 0;
       list.forEach(function (i) {
         if (!editable(i, 0)) { skip++; return; }
@@ -400,12 +454,12 @@
 
     function revertAll() {
       if (!anyDirty()) { ui.pageMessage('保存していない変更はありません', 'warn'); return; }
-      ui.confirm('保存していない変更をすべて取り消す', '保存していない入力をすべて元に戻しますか？', '取り消す', 'danger').then(function (ok) {
+      ui.confirm('保存していない変更をすべて取り消す', '保存していない入力をすべて元に戻しますか？', '取り消す', 'danger').then(ui.drawing(function (ok) {
         if (!ok) return;
         rows.forEach(function (x) { if (x.status === 'conflict') return; x.cur = Object.assign({}, x.base); x.rid = null; x.status = ''; x.err = null; });
         after();
         ui.pageMessage('保存していない変更を取り消しました', 'ok');
-      });
+      }));
     }
 
     function copyPrev() {
@@ -441,10 +495,10 @@
 
     function usePattern() {
       var rowsSel = grid.selectedRows();
-      choosePattern().then(function (p) {
+      choosePattern().then(ui.drawing(function (p) {
         if (!p) return;
         setRows(rowsSel, function (i) { return patternInput(p, rows[i].cur['備考']); }, '定型パターン「' + p.name + '」');
-      });
+      }));
     }
 
     function bulkApply() {
@@ -473,7 +527,7 @@
         ui.el('label', { class: 'check' }, [overBox, 'もう入っている日も上書きする']),
         ui.el('label', { class: 'check' }, [skipBox, '会社の休みの日（所定が無い・分からない日）を除く']),
       ]);
-      ui.dialog({ title: 'まとめて適用', text: '表の上に入れます。保存は「保存」ボタンで。', body: body, buttons: [{ label: '入れる', value: true, kind: 'primary' }, { label: 'やめる', value: false }] }).then(function (ok) {
+      ui.dialog({ title: 'まとめて適用', text: '表の上に入れます。保存は「保存」ボタンで。', body: body, buttons: [{ label: '入れる', value: true, kind: 'primary' }, { label: 'やめる', value: false }] }).then(ui.drawing(function (ok) {
         if (!ok) return;
         var from = fromSel.value, to = toSel.value;
         var on = {};
@@ -493,40 +547,68 @@
         });
         setRows(list, function (i) { return pat ? patternInput(pat, rows[i].cur['備考']) : Object.assign({}, base); }, 'まとめて適用');
 
-      });
+      }));
     }
 
     // ------------------------------------------------------------------ つなぐ
 
+    /**
+     * 読み込み直す。ui.run は終わるとボタンを押せる形に戻すので、「次」と「保存」は終わった後に決め直す
+     * （締めた期間へ移ったときなど。この呼び出しで実際に動いたときだけ。給与の目安・法律の時間外の画面と同じ）
+     */
+    function reload(date, employee) {
+      var started = false;
+      var again = function () {
+        if (data && MP.guard.isAdmin(me)) ui.$('emp-select').value = data.employee.employeeId; // 読めなかった・動かなかったときは、出ている社員に戻す
+        if (!started) return;
+        loading = false;
+        ui.$('emp-select').disabled = false;
+        if (grid) grid.setLocked(false);
+        if (!data) return;
+        ui.$('next').disabled = !data.nextDate;
+        ui.$('save').disabled = saving || !data.editable || MP.guard.viewing();
+        lockBroken();
+      };
+      ui.run(function () {
+        started = true;
+        // 読み込みの途中に表を直したり社員を選び直したりしない（ui.run が止めるのはボタンだけ）
+        loading = true;
+        ui.$('emp-select').disabled = true;
+        if (grid) grid.setLocked(true);
+        return load(date, employee);
+      }).then(ui.drawing(again), ui.drawing(function (e) { again(); throw e; })); // 後片づけ（表の描き直し）で止まっても「読み込み直す」だけにする
+    }
+
     function go(date, employee) {
       if (saving) return;
-      confirmLeave().then(function (ok) {
+      confirmLeave().then(ui.drawing(function (ok) {
         if (!ok) return;
-        ui.run(function () { return load(date, employee); });
-      });
+        reload(date, employee);
+      }));
     }
-    ui.$('prev').addEventListener('click', function () { go(data.prevDate, target); });
-    ui.$('next').addEventListener('click', function () { if (data.nextDate) go(data.nextDate, target); });
-    ui.$('emp-select').addEventListener('change', function (ev) {
+    // 押した・選んだときの処理は、すべて ui.drawing で包む（途中で止まったら「読み込み直す」だけにする）
+    ui.$('prev').addEventListener('click', ui.drawing(function () { go(data.prevDate, target); }));
+    ui.$('next').addEventListener('click', ui.drawing(function () { if (data.nextDate) go(data.nextDate, target); }));
+    ui.$('emp-select').addEventListener('change', ui.drawing(function (ev) {
       var v = ev.target.value;
       if (saving) { ev.target.value = data.employee.employeeId; return; }
-      confirmLeave().then(function (ok) {
+      confirmLeave().then(ui.drawing(function (ok) {
         if (!ok) { ev.target.value = data.employee.employeeId; return; }
-        ui.run(function () { return load(data.days[0].date, v === me.employeeId ? null : v); });
-      });
-    });
-    ui.$('save').addEventListener('click', doSave);
-    ui.$('copy-prev').addEventListener('click', copyPrev);
-    ui.$('use-pattern').addEventListener('click', usePattern);
-    ui.$('bulk').addEventListener('click', bulkApply);
-    ui.$('revert-row').addEventListener('click', revertSelected);
-    ui.$('revert-all').addEventListener('click', revertAll);
-    ui.$('to-day').addEventListener('click', function (ev) {
+        reload(data.days[0].date, v === me.employeeId ? null : v);
+      }));
+    }));
+    ui.$('save').addEventListener('click', ui.drawing(doSave));
+    ui.$('copy-prev').addEventListener('click', ui.drawing(copyPrev));
+    ui.$('use-pattern').addEventListener('click', ui.drawing(usePattern));
+    ui.$('bulk').addEventListener('click', ui.drawing(bulkApply));
+    ui.$('revert-row').addEventListener('click', ui.drawing(revertSelected));
+    ui.$('revert-all').addEventListener('click', ui.drawing(revertAll));
+    ui.$('to-day').addEventListener('click', ui.drawing(function (ev) {
       ev.preventDefault();
       if (saving) return;
       var href = ui.$('to-day').href;
-      confirmLeave().then(function (ok) { if (ok) { rows.forEach(function (x) { x.cur = x.base; }); remember('day'); window.location.href = href; } });
-    });
+      confirmLeave().then(ui.drawing(function (ok) { if (ok && !ui.isBroken()) { rows.forEach(function (x) { x.cur = x.base; }); remember('day'); window.location.href = href; } }));
+    }));
     window.addEventListener('beforeunload', function (ev) { if (anyDirty() || saving) { ev.preventDefault(); ev.returnValue = ''; } });
 
     remember('grid');

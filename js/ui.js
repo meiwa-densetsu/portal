@@ -33,6 +33,7 @@
 
   /** 画面の上のお知らせ（#msg）。text が空なら消す。kind: error / info / warn / ok */
   function pageMessage(text, kind) {
+    if (brokenNow && !brokenMsgOk) return; // 「読み込み直す」だけにした後は、遅れて届いた知らせで画面を戻さない（boot.js の知らせは brokenMessage で出す）
     var box = $('msg');
     if (!box) return;
     box.textContent = text || '';
@@ -109,6 +110,7 @@
       if (bar.parentNode) bar.parentNode.removeChild(bar);
     };
     var p;
+    if (strict) fn = drawing(fn); // watchBroken を呼んだ画面では、送信の中で出た例外（文字列も）で「読み込み直す」だけにする
     try { p = Promise.resolve(fn()); } catch (e) { p = Promise.reject(e); }
     return p.then(function (v) { done(); return v; }, function (e) { done(); throw e; });
   }
@@ -120,6 +122,8 @@
   var DIALOG_ROW_MAX = 3; // パソコンの幅で、横 1 列に並べるボタンの数の限り（超えたら何段かに分ける）
 
   function dialog(o) {
+    // 「読み込み直す」だけにした後は窓を開かない（遅れて届いた返事が窓を出し、押せる物を戻さない）。答えは返さず、窓の後の処理も動かさない
+    if (brokenNow) return new Promise(function () {});
     return new Promise(function (resolve) {
       var d = el('dialog', { 'aria-labelledby': 'dlg-title' });
       var result = o.dismiss === undefined ? null : o.dismiss;
@@ -147,6 +151,7 @@
       });
       d.addEventListener('close', function () {
         if (d.parentNode) d.parentNode.removeChild(d);
+        if (brokenNow) return; // showBroken が閉じたとき: 答えを返さず、窓の後の処理（読み直しなど）を起こさない
         if (o.onClose) o.onClose();
         resolve(result);
       });
@@ -220,7 +225,94 @@
     return ios && navigator.standalone !== true;
   }
 
+  var brokenNow = false;   // showBroken の後（描画と知らせを止める印）
+  var brokenMsgOk = false; // brokenMessage の間だけ、pageMessage を通す
+
+  /**
+   * 描画が例外で止まったとき: 画面の中身（#view）を隠して触れなくし、「画面を表示できませんでした」と
+   * 「読み込み直す」（ページを読み込み直す）だけを出す。前の社員・期間の表示や、押せるボタン・リンクを残さない。
+   * お知らせ（#msg。通信の失敗の「詳しく」も中にある）と、管理者に知らせるボタン（.report-box）も隠す。
+   * この後は pageMessage を止める（isBroken で、遅れて届いた返事が画面を戻さないようにする）。どこで止まっても出せるよう、1 つずつ try で囲む
+   */
+  function showBroken() {
+    brokenNow = true;
+    try { document.body.hidden = false; } catch (e) { /* 次へ */ }
+    try { var v = $('view'); if (v) { v.hidden = true; v.inert = true; } } catch (e) { /* 次へ */ }
+    try { var m = $('msg'); if (m) m.hidden = true; } catch (e) { /* 次へ */ }
+    try { var ln = $('loading-note'); if (ln && ln.parentNode) ln.parentNode.removeChild(ln); } catch (e) { /* 次へ（最初の読み込みを待つ間の「読み込み中…」。#msg の外） */ }
+    try { Array.prototype.forEach.call(document.querySelectorAll('.report-box'), function (x) { if (x.parentNode) x.parentNode.removeChild(x); }); } catch (e) { /* 次へ */ }
+    // リマインダーと安否確認の帯（#view の外。リンク・ボタンがある）も消す。この後は remind.js が stopped を見て出さない。読み込み直せば出る
+    // 上の帯（#topbar）のボタン（ログアウト・社員の画面を見るのを終わる）も隠す（送信も窓も止まっていて、押しても何も起きないため）。ふつうのリンク（ホーム）は残す
+    try { Array.prototype.forEach.call(document.querySelectorAll('#topbar button'), function (x) { x.hidden = true; }); } catch (e) { /* 次へ */ }
+    try { ['remind-bar', 'safety-bar'].forEach(function (id) { var x = $(id); if (x && x.parentNode) x.parentNode.removeChild(x); }); } catch (e) { /* 次へ */ }
+    try { Array.prototype.forEach.call(document.querySelectorAll('dialog[open]'), function (d) { d.close(); }); } catch (e) { /* 次へ */ }
+    try { var busy = document.querySelector('.busy'); if (busy && busy.parentNode) busy.parentNode.removeChild(busy); } catch (e) { /* 次へ */ }
+    if ($('broken-box')) return;
+    var box = el('div', { id: 'broken-box', class: 'msg error', role: 'alert' }, [
+      el('p', { text: '画面を表示できませんでした' }),
+      el('button', { type: 'button', id: 'broken-reload', class: 'btn primary block', text: '読み込み直す', on: { click: function () { window.location.reload(); } } }),
+    ]);
+    var main = document.querySelector('main') || document.body;
+    main.insertBefore(box, main.firstChild);
+  }
+
+  /** showBroken の後か（遅れて届いた返事は、画面を描き直さずに終える） */
+  function isBroken() { return brokenNow; }
+
+  /**
+   * 日報の 4 画面（watchBroken を呼んだ画面）で、showBroken の後か。MP.api.call（送らない・届いた返事を渡さない）と
+   * MP.go（画面を移らない）がこれを見て止まる。「読み込み直す」は location.reload なので止まらない
+   */
+  function stopped() { return strict && brokenNow; }
+
+  /** showBroken の後でも出すお知らせ（boot.js が最初の読み込みで出す「画面の表示中に問題が起きました」と、管理者に知らせるボタンだけ） */
+  function brokenMessage(text, kind) {
+    brokenMsgOk = true;
+    try { pageMessage(text, kind); } finally { brokenMsgOk = false; }
+  }
+
+  /**
+   * 日付・社員を切り替えて描く処理を包む。この中で例外が出たら（文字列を投げたときも、返した Promise が拒否されたときも）showBroken にしてから、そのまま投げる。
+   * 使い方: ui.drawing(function () { ... })（包んだ関数を返す。呼ぶと中身を動かす）
+   */
+  function drawing(fn) {
+    return function () {
+      var r;
+      try { r = fn.apply(this, arguments); } catch (e) { showBroken(); throw e; }
+      if (r && typeof r.then === 'function') return r.then(null, function (e) { showBroken(); throw e; });
+      return r;
+    };
+  }
+
+  /** 決めた画面のファイル（例 'page_report.js'）の、読み込んだ住所（? の前） */
+  function scriptBases(names) {
+    var out = [];
+    Array.prototype.forEach.call(document.querySelectorAll('script[src]'), function (sc) {
+      var src = String(sc.src || '').split('?')[0];
+      names.forEach(function (n) { if (src.slice(-('/js/' + n).length) === '/js/' + n) out.push(src); });
+    });
+    return out;
+  }
+
+  /**
+   * 保険の見張り: この画面にいる間、names の画面のファイル（例 ['page_report.js']）から出て誰も拾わなかった例外
+   * （window の error・unhandledrejection）で showBroken にする。スタックか、出た所のファイル名が、その住所を含むときだけ（ほかの部品・外のコードの例外では隠さない）。
+   * 拾った例外は止めない（ブラウザの開発者の画面には今までどおり出る）。主な守りは drawing と load の中の try
+   */
+  var strict = false; // watchBroken を呼んだ画面（日報の 4 画面）。ui.run の中を drawing で包む
+  function watchBroken(names) {
+    strict = true;
+    var bases = scriptBases(names || []);
+    var mine = function (err, filename) {
+      var where = String((err && err.stack) || '') + ' ' + String(filename || '');
+      return bases.some(function (b) { return where.indexOf(b) >= 0; });
+    };
+    window.addEventListener('error', function (ev) { if (ev && mine(ev.error, ev.filename)) showBroken(); });
+    window.addEventListener('unhandledrejection', function (ev) { if (ev && mine(ev.reason, '')) showBroken(); });
+  }
+
   MP.ui = {
+    showBroken: showBroken, watchBroken: watchBroken, isBroken: isBroken, stopped: stopped, brokenMessage: brokenMessage, drawing: drawing,
     $: $, el: el, clear: clear, pageMessage: pageMessage, showFlash: showFlash, fieldError: fieldError, clearFieldErrors: clearFieldErrors,
     run: run, dialog: dialog, confirm: confirm, notice: notice, fmtDateTime: fmtDateTime, fmtTime: fmtTime, fmtDate: fmtDate,
     guessDeviceName: guessDeviceName, deviceSummary: deviceSummary, iosNotStandalone: iosNotStandalone,

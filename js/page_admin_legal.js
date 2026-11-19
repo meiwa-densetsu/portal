@@ -4,6 +4,7 @@
  * 1年の期間（5/1〜4/30）の、法律上の時間外の推計と36協定の上限（1か月42時間・1年320時間・1日3時間・法定休日の勤務は月4回）。
  * 言い方の決まり（手順4 第0章）: 推計が上限の内側でも「内側」「守れています」とは言わない。数字だけを出す。
  * 未入力などで未確定なら「少なくとも」。集計がずれているときは「作り直すまで正しくありません」
+ * 年の総枠を超えた分（清算）の推計は、多くも少なくも出るので「少なくとも」と言わない（計画 stage3-pay-estimate-plan.md 14-1）
  */
 (function () {
   'use strict';
@@ -46,10 +47,11 @@
       var p = first ? MP.guard.enter({ admin: true, load: { action: 'report.admin.legal', args: args } })
         : MP.api.call('report.admin.legal', args).then(function (res) { return { res: res }; });
       return p.then(function (r) {
-        if (!r.res.ok) { ui.pageMessage(r.res.message, 'error'); return; }
+        if (!r.res.ok) { ui.pageMessage(r.res.message, 'error'); return false; } // サーバーの断り・通信の失敗は、ほかの画面と同じく返事の文を出す
         data = r.res.data;
         ui.$('view').hidden = false;
         renderList();
+        return true;
       });
     }
 
@@ -123,7 +125,8 @@
       box.appendChild(kv);
       e.settlements.forEach(function (s) {
         box.appendChild(ui.el('p', { class: 'sub', text: '清算 ' + s.from.slice(5).replace('-', '/') + '〜' + s.to.slice(5).replace('-', '/') + ': ' +
-          (s.settlementOT !== null ? hm(s.settlementOT) : '少なくとも ' + hm(s.soFar)) }));
+          // 推計（soFar）は、境目の週は多めに、日報の抜けは少なめに出る（計画 stage3-pay-estimate-plan.md 14-1。給与の目安の画面と同じ言い方）
+          (s.settlementOT !== null ? hm(s.settlementOT) : '推計 ' + hm(s.soFar) + '（境目の週・日報の抜けがあると、多くも少なくも出ます）') }));
       });
       box.appendChild(ui.el('h3', { text: '月ごと（協定の1か月は暦の月）' }));
       var ul = ui.el('ul', { class: 'list' });
@@ -144,8 +147,29 @@
       ui.$('detail-view').scrollIntoView({ block: 'start' });
     }
 
-    ui.$('prev').addEventListener('click', function () { ui.run(function () { return load(data.prevDate); }); });
-    ui.$('next').addEventListener('click', function () { if (data.nextDate) ui.run(function () { return load(data.nextDate); }); });
+    /** 年度を移る。ui.run は終わるとボタンを押せる形に戻すので、「次の年度」は終わった後に決め直す（給与の目安の画面と同じ） */
+    function move(date) {
+      var before = data;
+      var wasDetail = !ui.$('detail-view').hidden; // 社員の詳しい表示を開いていたか（失敗したら、そのまま戻す）
+      var p = ui.run(function () { return load(date); });
+      // 移れたら前の知らせを消す。返事が断り・通信の失敗なら load が返事の文を出し、表示は移る前のまま。
+      // 表示の途中の問題（例外）は飲み込まず、ほかの画面と同じ一言で知らせる。ボタンは ui.run が押せる形に戻す。
+      // 表示は移る前のもの（開いていた詳しい表示も）に戻し、前後のボタンも移る前の期間から決める（途中まで描いた表示を残さない）
+      if (p) p.then(function (moved) {
+        ui.$('next').disabled = !data.nextDate;
+        if (moved) ui.pageMessage('');
+      }, function () {
+        data = before;
+        try {
+          renderList();
+          if (wasDetail) { ui.$('list-view').hidden = true; ui.$('detail-view').hidden = false; } // 詳しい表示の中身は描き直していない
+        } catch (e) { /* 戻せなくても、知らせは出す */ }
+        ui.$('next').disabled = !data.nextDate;
+        ui.pageMessage('読み込めませんでした。もう一度お試しください', 'error');
+      });
+    }
+    ui.$('prev').addEventListener('click', function () { move(data.prevDate); });
+    ui.$('next').addEventListener('click', function () { if (data.nextDate) move(data.nextDate); });
     ui.$('back').addEventListener('click', function () { ui.$('detail-view').hidden = true; ui.$('list-view').hidden = false; });
 
     var today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); // 開く年度を決めるだけ

@@ -10,21 +10,21 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=23">
-<script src="js/boot.js?v=23" defer></script>
-<script src="js/sw_register.js?v=23" defer></script>
-<script src="js/config.js?v=23" defer></script>
-<script src="js/store.js?v=23" defer></script>
-<script src="js/ui.js?v=23" defer></script>
-<script src="js/api.js?v=23" defer></script>
-<script src="js/report.js?v=23" defer></script>
-<script src="js/guard.js?v=23" defer></script>
-<script src="gen/calc_task.js?v=23" defer></script>
-<script src="js/remind.js?v=23" defer></script>
-<script src="vendor/exceljs-4.4.0.min.js?v=23" defer></script>
-<script src="js/bulk.js?v=23" defer></script>
-<script src="js/bulk_book.js?v=23" defer></script>
-<script src="js/page_admin_bulk.js?v=23" defer></script>
+<link rel="stylesheet" href="css/style.css?v=25">
+<script src="js/boot.js?v=25" defer></script>
+<script src="js/sw_register.js?v=25" defer></script>
+<script src="js/config.js?v=25" defer></script>
+<script src="js/store.js?v=25" defer></script>
+<script src="js/ui.js?v=25" defer></script>
+<script src="js/api.js?v=25" defer></script>
+<script src="js/report.js?v=25" defer></script>
+<script src="js/guard.js?v=25" defer></script>
+<script src="gen/calc_task.js?v=25" defer></script>
+<script src="js/remind.js?v=25" defer></script>
+<script src="vendor/exceljs-4.4.0.min.js?v=25" defer></script>
+<script src="js/bulk.js?v=25" defer></script>
+<script src="js/bulk_book.js?v=25" defer></script>
+<script src="js/page_admin_bulk.js?v=25" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -41,11 +41,19 @@
     <button type="button" id="resume" class="btn primary block">前回の続きを確かめる</button>
   </div>
 
+  <div id="import" class="card" hidden>
+    <h2>前回の取り込み</h2>
+    <p id="import-text"></p>
+    <button type="button" id="finish-import" class="btn block">取り込みを終える</button>
+  </div>
+
   <div id="main">
     <div class="card">
       <h2>1. 今の内容を Excel で書き出す</h2>
       <p class="sub">「部署」と「社員」のシートが入ったファイルを作ります。権限・部署などは、マスの右の▼から選べます。入れ方は「書き方」のシートにあります。</p>
-      <p class="sub">ファイルには個人情報（名前・生年月日・入社日）が入っています。取り扱いに注意し、要らなくなったら消してください。</p>
+      <p class="sub">ファイルには個人情報（名前・生年月日・入社日・保険の番号・給与の金額）が入っています。共有のフォルダ・メールに置かず、要らなくなったら消してください。</p>
+      <label class="check" for="omit-pay"><input type="checkbox" id="omit-pay"> 保険の番号・給与の金額を入れない</label>
+      <p class="hint">入れないで書き出したファイルを読み込むと、保険の番号・給与の金額は今のまま変わりません。</p>
       <button type="button" id="export" class="btn block">Excel で書き出す</button>
       <p id="exported" class="hint" role="status" hidden></p>
     </div>
@@ -75,6 +83,7 @@
       <p id="progress" role="status"></p>
       <ul id="result-list" class="list bulk-list"></ul>
       <ul id="followup" class="list bulk-list"></ul>
+      <button type="button" id="finish-import2" class="btn block" hidden>取り込みを終える</button>
       <a id="to-employees" class="btn block" href="admin_employees.html" hidden>社員の管理の画面へ（招待・利用の再開）</a>
     </div>
   </div>

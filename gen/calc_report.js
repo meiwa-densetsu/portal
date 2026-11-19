@@ -12,7 +12,8 @@
  *   normalizeDay(画面の入力, rules) → { entries, note }（そろえた入力。施工内容は勤務ごと）
  *   effective(日報の行) → 施工内容を読み替えた行の写し（古い列「施工内容」との関係。手順10b 2-2）
  *   toSlots(そろえた入力, CW, rules) → 日報の行の入力の列（昼の欄・夜の欄に振り分け）
- *   calcDay(行, { date, breakType }, CW, rules) → 計算の結果（計算の列）
+ *   calcDay(行, { date, breakType, leaves }, CW, rules) → 計算の結果（計算の列）。leaves は勤務の中の休みの区間（休暇の計画 第17章）
+ *   leaveMark(行, leaves, CW, rules) → 日報の列「休みの時刻」の区間の部分（勤務と重なる休みだけ）
  *   checkOverlap(前の日の行, その日の行, 次の日の行, CW, rules) → 時間の重なり
  *   balance(実働, 会社用の所定, 夜勤があるか, CW, rules) → 所定を超えた時間・足りない時間
  */
@@ -341,7 +342,7 @@ var CalcReport = (function () {
         for (var i = 0; i < s.errors.length; i++) errors.push({ slot: slot, field: s.errors[i].field, code: s.errors[i].code });
         return;
       }
-      var calc = CW.calcShift(s.shift, ctx.breakType, rules);
+      var calc = CW.calcShift(s.shift, ctx.breakType, rules, ctx.leaves);
       var split = CW.splitShift(s.shift, calc, ctx.date, rules);
       slots[slot] = { shift: s.shift, calc: calc, split: split };
       work += calc.work;
@@ -377,6 +378,26 @@ var CalcReport = (function () {
       cols['計算の決まり'] = CW.rulesKey(rules);
     }
     return { ok: true, errors: [], warnings: warnings, slots: slots, work: work, deepNight: deep, legalHoliday: holiday, byDate: byDate, cols: cols };
+  }
+
+  /**
+   * 日報の列「休みの時刻」の区間の部分（休暇の計画 第17章 17-12 (2)）: 休みの区間のうち、その日報の勤務（出社〜退社）と重なる部分だけを
+   * 「始め-終わり」をコンマでつないだ文字（無ければ ''）。計算・照合・計算し直しの要否で同じものを使う
+   */
+  function leaveMark(row, leaves, CW, rules) {
+    if (!row || !leaves || !leaves.length) return '';
+    var r = effective(row);
+    var spans = [];
+    ['day', 'night'].forEach(function (slot) {
+      if (!slotPresent_(r, slot)) return;
+      var s = slotShift_(r, slot, CW, rules);
+      if (!s.ok) return;
+      leaves.forEach(function (l) {
+        var f = Math.max(l[0], s.shift.arrive), t = Math.min(l[1], s.shift.leave);
+        if (t > f) spans.push([f, t]);
+      });
+    });
+    return CW.mergeSpans(spans).map(function (x) { return x[0] + '-' + x[1]; }).join(',');
   }
 
   /** 行の勤務を、その日の 0:00 からの区間 [出社, 退社] にする（offset は前の日 -1440・次の日 +1440）。通らなければ null */
@@ -471,5 +492,6 @@ var CalcReport = (function () {
     checkOverlap: checkOverlap,
     balance: balance,
     summaryOf: summaryOf,
+    leaveMark: leaveMark,
   };
 })();

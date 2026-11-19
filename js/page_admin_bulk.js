@@ -5,8 +5,13 @@
  * 流れ: 書き出す（ファイルを作って保存）→ 書き足したファイルを選ぶ → 部署と社員を1回で確かめる → 登録（部署が全部保存できたときだけ、社員へ進む）
  * ファイルの中身はどこにも送らない（送るのは保存の1件ずつだけ）。読み込んだファイル・計画は、ページを離れると消える
  *
- * 送り残しの記録: 保存1件を送る前に localStorage に「action・args・requestId」を書き、結果がはっきりしたら消す。
- * 1件ごとに別のキー（PREFIX + requestId）。残っていれば、普通の流れより先に同じ requestId で送り直して結果をはっきりさせる
+ * 途中の記録（計画 docs/plans/stage2-employee-fields-plan.md 10-4・10-7〜10-9。端末に番号・金額・名前・planKey の文字を残さない）:
+ *   mp_bulk_pending:<社員ID>:<requestId> … 結果の分からない保存 1 件。{ action, requestId, at } だけ。送る前に書き、結果がはっきりしたら消す
+ *   mp_bulk_import:<社員ID>             … 1 回の取り込みの全部の操作（成功した分も）。{ at, count, items: [{ requestId, action }] } だけ。
+ *                                          「取り込みを終える」を押すか、次の取り込み（「登録する」）を始めたときだけ消す（ログアウト・別の人のログインでも消す。store.js）
+ *   結果の分からない保存の続きは、元の引数を作り直さずに、サーバー（master.admin.settleRequests）に requestId で結果を確定してもらう。
+ *   登録されていない分は、Excel を読み込み直して、新しい requestId で送る
+ *   settleRequests が返す「足せていた社員の名前 → 社員ID」の対応は、この画面を開いている間だけメモリに持ち、読み込み直しで使う（端末に残さない）
  */
 (function () {
   'use strict';
@@ -26,6 +31,10 @@
         return;
       }
       var PREFIX = 'mp_bulk_pending:' + me.employeeId + ':';
+      var IMPORT_KEY = 'mp_bulk_import:' + me.employeeId;
+      var RID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+      var ACTION_NAMES = { 'master.admin.saveDepartment': '部署の保存', 'master.admin.addEmployee': '社員を足す', 'master.admin.updateEmployee': '社員の基本の保存', 'master.admin.saveHistory': '社員の履歴の保存' };
+      var knownIds = {}; // 前の取り込みで足せていた社員の 名前の鍵 → 社員ID（この画面を開いている間だけ。計画 10-8・10-9）
       $('bulk').hidden = false;
 
       // ------------------------------------------------ 送り残しの記録
@@ -45,20 +54,48 @@
           if (!k || k.indexOf(PREFIX) !== 0) continue;
           try {
             var v = JSON.parse(window.localStorage.getItem(k));
-            // キーの末尾と中の requestId が同じ・決まった保存の処理・args がオブジェクト、でなければ「読めない記録」（消さずに止める）
-            if (!v || typeof v.requestId !== 'string' || k !== PREFIX + v.requestId || ACTIONS.indexOf(v.action) < 0 ||
-              !v.args || typeof v.args !== 'object' || Array.isArray(v.args) || typeof v.at !== 'number') throw new Error('形');
-            out.push(v);
+            // キーの末尾と中の requestId が同じ・requestId の形・決まった保存の処理・日時、でなければ「読めない記録」（消さずに止める）。
+            // 前の版の記録（送る中身 args を持つ）も読める。中身は使わず、requestId だけで結果を確定して消す
+            if (!v || typeof v.requestId !== 'string' || !RID.test(v.requestId) || k !== PREFIX + v.requestId || ACTIONS.indexOf(v.action) < 0 || typeof v.at !== 'number') throw new Error('形');
+            out.push({ requestId: v.requestId, action: v.action, at: v.at });
           } catch (e) { bad = true; }
         }
         out.sort(function (a, b) { return a.at - b.at; });
         return { items: out, bad: bad };
       }
       function putPending(op) {
-        window.localStorage.setItem(PREFIX + op.requestId, JSON.stringify({ action: op.action, args: op.args, requestId: op.requestId, label: op.label, at: Date.now() }));
+        window.localStorage.setItem(PREFIX + op.requestId, JSON.stringify({ action: op.action, requestId: op.requestId, at: Date.now() }));
       }
       function dropPending(rid) {
-        try { window.localStorage.removeItem(PREFIX + rid); } catch (e) { /* 次に開いたときに送り直して消す */ }
+        try { window.localStorage.removeItem(PREFIX + rid); } catch (e) { /* 次に開いたときに確定して消す */ }
+      }
+
+      // 1 回の取り込みの記録（全部の操作の requestId と処理の名前だけ。計画 10-9）
+      /** 返り値: null（無い）・{ bad: true }（読めない）・{ at, count, items } */
+      function readImport() {
+        var raw;
+        try { raw = window.localStorage.getItem(IMPORT_KEY); } catch (e) { return null; }
+        if (raw === null || raw === '') return null;
+        try {
+          var v = JSON.parse(raw);
+          if (!v || typeof v.at !== 'number' || typeof v.count !== 'number' || !Array.isArray(v.items) ||
+            !v.items.every(function (x) { return x && typeof x.requestId === 'string' && RID.test(x.requestId) && ACTIONS.indexOf(x.action) >= 0; })) throw new Error('形');
+          return { at: v.at, count: v.count, items: v.items.map(function (x) { return { requestId: x.requestId, action: x.action }; }) };
+        } catch (e) { return { bad: true }; }
+      }
+      /** 取り込みを始める（前の取り込みの記録を消して、空の記録を書く）。書けなければ例外 */
+      function startImport(count) {
+        window.localStorage.setItem(IMPORT_KEY, JSON.stringify({ at: Date.now(), count: count, items: [] }));
+      }
+      /** 送る前に、操作を取り込みの記録に足す。書けなければ例外 */
+      function addToImport(op) {
+        var cur = readImport();
+        if (!cur || cur.bad) throw new Error('取り込みの記録');
+        cur.items.push({ requestId: op.requestId, action: op.action });
+        window.localStorage.setItem(IMPORT_KEY, JSON.stringify(cur));
+      }
+      function dropImport() {
+        try { window.localStorage.removeItem(IMPORT_KEY); } catch (e) { /* 消せないときは、次に開いたときにまた出る */ }
       }
 
       if (!storageOk()) {
@@ -66,11 +103,12 @@
         ui.pageMessage('この端末では途中の記録を残せないため、まとめて登録を使えません。社員の管理の画面で1件ずつ登録してください', 'error');
         return;
       }
-      // 「他の人も使う」のログインでは使わない。結果の分からない保存の記録（名前・生年月日・入社日を含む）は、ログアウトしても端末に残るため
+      // 「他の人も使う」のログインでは使わない。途中の記録（requestId と処理の名前だけ。番号・金額・名前は入れない）は、共有の端末に残すと次の人が続きを確かめられてしまうため。
+      // 読み込んだファイル（保険の番号・給与の金額を含む）も、共有の端末では扱わない
       if (MP.store.tokenShared()) {
         $('main').hidden = true;
         $('pending').hidden = true;
-        ui.pageMessage('「他の人も使う」でログインしているため、まとめて登録を使えません（途中の記録に個人情報が入り、ログアウトしても端末に残るため）。自分の端末でログインし直してください', 'error');
+        ui.pageMessage('「他の人も使う」でログインしているため、まとめて登録を使えません（途中の記録が端末に残り、ファイルには個人情報〔保険の番号・給与の金額を含む〕が入るため）。自分の端末でログインし直してください', 'error');
         return;
       }
 
@@ -85,7 +123,7 @@
           if (!r.ok && UNKNOWN.indexOf(r.code) >= 0) return attempt();
           return r;
         }).then(function (r) {
-          if (r.ok) return { state: 'ok', message: '保存しました' };
+          if (r.ok) return { state: 'ok', message: '保存しました', data: r.data };
           if (UNKNOWN.indexOf(r.code) >= 0) return { state: 'unknown', message: '保存できたか分かりません（' + r.message + '）' };
           return { state: 'denied', message: '保存できませんでした: ' + r.message };
         });
@@ -116,7 +154,7 @@
             count.skipped++;
             return next();
           }
-          try { putPending(op); } catch (e) {
+          try { addToImport(op); putPending(op); } catch (e) {
             list.appendChild(resultLine(op.label, { state: 'unknown', message: '途中の記録を残せないため、ここで止めました（まだ送っていません）' }));
             count.stopped = true; count.unknown++;
             return Promise.resolve(count);
@@ -126,6 +164,10 @@
             if (res.state === 'unknown') { count.stopped = true; count.unknown++; return count; } // 記録は残す（次に開いたとき・読み込むときに送り直す）
             dropPending(op.requestId);
             if (res.state === 'denied') { failedGroups[op.group] = true; count.denied++; } else count.ok++;
+            // 足せた社員の 名前 → 社員ID を、この画面を開いている間だけ覚える（読み込み直しで、同じ人を二重に足さない。計画 10-8）
+            if (res.state === 'ok' && op.action === 'master.admin.addEmployee' && res.data && typeof res.data.employeeId === 'string' && res.data.employeeId) {
+              knownIds[bulk.nameKey(op.args.name)] = res.data.employeeId;
+            }
             return next();
           });
         }
@@ -133,38 +175,104 @@
       }
 
       // ------------------------------------------------ 前回の続き
+      /** 前回の続きの案内を出す。結果の分からない保存・読めない記録があれば true（普通の流れに進ませない） */
       function showPending() {
         var p = listPending();
-        if (p.bad) {
-          $('pending').hidden = false; $('main').hidden = true; $('resume').hidden = true;
+        var imp = readImport();
+        if (p.bad || (imp && imp.bad)) {
+          $('pending').hidden = false; $('main').hidden = true; $('resume').hidden = true; $('import').hidden = true;
           $('pending-text').textContent = '読めない途中の記録があります。管理者に連絡してください';
           return true;
         }
         if (!p.items.length) { $('pending').hidden = true; $('main').hidden = false; return false; }
-        $('pending').hidden = false; $('main').hidden = true; $('resume').hidden = false;
-        $('pending-text').textContent = '前回、結果が分からない保存が ' + p.items.length + ' 件あります。先に「前回の続きを確かめる」を押してください（同じ保存として送り直すので、二重にはなりません）';
+        $('pending').hidden = false; $('main').hidden = true; $('resume').hidden = false; $('import').hidden = true;
+        $('pending-text').textContent = '前回、結果が分からない保存が ' + p.items.length + ' 件あります。先に「前回の続きを確かめる」を押してください（サーバーに結果を問い合わせるだけなので、二重にはなりません）';
         var list = ui.clear($('pending-list'));
-        p.items.forEach(function (x) { list.appendChild(el('li', { text: x.label || x.action })); });
+        p.items.forEach(function (x) { list.appendChild(el('li', { text: ACTION_NAMES[x.action] || x.action })); });
         return true;
+      }
+
+      /** 1 回の取り込みの記録の案内（結果の分からない保存が無いとき）。text … 確かめた結果の文 */
+      function showImport(text) {
+        var imp = readImport();
+        if (!imp || imp.bad || listPending().items.length) { $('import').hidden = true; return; }
+        $('import').hidden = false;
+        $('import-text').textContent = '前回の取り込み（' + ui.fmtDateTime(fmtAt(imp.at)) + '・' + imp.items.length + ' 件）の記録があります。' + (text || '') +
+          '同じファイルを読み込み直すと、登録できていた人は足さずに確かめます。終わったら「取り込みを終える」を押してください。';
+      }
+
+      function fmtAt(ms) {
+        var d = new Date(ms);
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+
+      /**
+       * 取り込みの記録と結果の分からない保存の requestId を、サーバーに確定してもらう（計画 10-7〜10-9。元の引数は送らない）。
+       * 返り値: { ok: false, message } か { ok: true, done, notDone, added: [{ name, employeeId }] }。
+       * 足せていた社員の 名前 → 社員ID を覚え直し、答えのあった requestId の「結果の分からない保存」の記録を消す
+       */
+      function settle() {
+        var imp = readImport();
+        var seen = {}, ids = [];
+        var add = function (rid) { if (!seen[rid]) { seen[rid] = true; ids.push(rid); } };
+        ((imp && !imp.bad) ? imp.items : []).forEach(function (x) { add(x.requestId); });
+        listPending().items.forEach(function (x) { add(x.requestId); });
+        if (!ids.length) return Promise.resolve({ ok: true, done: 0, notDone: 0, added: [] });
+        return MP.api.call('master.admin.settleRequests', { requestIds: ids }).then(function (r) {
+          if (!r.ok) return { ok: false, message: r.message };
+          var items = r.data && Array.isArray(r.data.items) ? r.data.items : [];
+          var out = { ok: true, done: 0, notDone: 0, added: [] };
+          items.forEach(function (x) {
+            if (!x || typeof x.requestId !== 'string' || !seen[x.requestId]) return;
+            if (x.status === 'done') {
+              out.done++;
+              if (typeof x.employeeId === 'string' && x.employeeId && typeof x.name === 'string' && x.name) {
+                knownIds[bulk.nameKey(x.name)] = x.employeeId;
+                out.added.push({ name: x.name, employeeId: x.employeeId });
+              }
+            } else out.notDone++;
+            dropPending(x.requestId); // 結果がはっきりした（反映済み・失敗・届いていない〔受付を締めた〕）
+          });
+          return out;
+        });
+      }
+
+      function settleText(s) {
+        return s.done + ' 件は登録できていました・' + s.notDone + ' 件は登録されていません。';
       }
 
       $('resume').addEventListener('click', function () {
         $('file').disabled = true; // ファイルを選ぶ欄は ui.run では止まらないので、自分で止める
         var unlock = function () { $('file').disabled = false; };
         ui.run(function () {
-          var items = listPending().items;
           var list = ui.clear($('result-list'));
           ui.clear($('followup'));
-          $('result').hidden = false;
-          $('pending').hidden = true;
-          $('main').hidden = false;
-          var ops = items.map(function (x) { return { action: x.action, args: x.args, requestId: x.requestId, label: x.label || x.action, group: x.requestId }; });
-          return runOps(ops, list, '').then(function (c) {
-            $('progress').textContent = c.stopped ? '結果の分からない保存があります。電波の良いところで、もう一度開いてください' : '前回の続きを確かめました。もう一度ファイルを読み込むと、残りが出ます';
-            return reloadData();
-          }).then(function () { showPending(); });
+          return settle().then(function (s) {
+            if (!s.ok) { ui.pageMessage('前回の続きを確かめられませんでした（' + s.message + '）。電波の良いところで、もう一度押してください', 'error'); return; }
+            $('result').hidden = false;
+            $('pending').hidden = true;
+            $('main').hidden = false;
+            s.added.forEach(function (a) { list.appendChild(el('li', { text: '新しい社員 ' + a.name + '（' + a.employeeId + '）は登録できていました' })); });
+            $('progress').textContent = '前回の続きを確かめました（' + settleText(s) + '）もう一度ファイルを読み込むと、残りが出ます';
+            return reloadData().then(function () { if (!showPending()) showImport(settleText(s)); });
+          });
         }).then(unlock, unlock);
       });
+
+      $('finish-import').addEventListener('click', endImport);
+      $('finish-import2').addEventListener('click', endImport);
+      /** 取り込みを終える: 取り込みの記録と、名前 → 社員ID の対応を消す（結果の分からない保存が残っているときは消さない） */
+      function endImport() {
+        if (running || listPending().items.length) return;
+        dropImport();
+        knownIds = {};
+        $('import').hidden = true;
+        $('finish-import2').hidden = true;
+        ui.pageMessage('');
+        $('progress').textContent = $('result').hidden ? '' : '取り込みを終えました';
+        if ($('result').hidden) ui.pageMessage('取り込みを終えました', 'info');
+      }
 
       // ------------------------------------------------ 読み直し
       function reloadData() {
@@ -180,6 +288,20 @@
 
       // ------------------------------------------------ 書き出し
       $('export').addEventListener('click', function () {
+        if (running || $('export').disabled) return;
+        // 保険の番号・給与の金額を入れるとき（初めは入れる）は、書き出す前に 1 回だけ確かめる（計画 4-3）
+        var omit = $('omit-pay').checked;
+        var ask = bulk.hasPay(data) && !omit
+          ? ui.dialog({
+            title: '書き出す前に確かめてください', dismiss: false,
+            text: 'このファイルには、全員の保険の番号と給与の金額が入ります。共有のフォルダ・メールに置かないでください。要らなくなったら消してください。',
+            buttons: [{ label: '書き出す', value: true, kind: 'primary' }, { label: 'やめる', value: false }],
+          })
+          : Promise.resolve(true);
+        ask.then(function (yes) { if (yes) doExport(omit); });
+      });
+
+      function doExport(omit) {
         lockFile(true);
         var p = ui.run(function () {
           $('exported').hidden = true;
@@ -187,7 +309,7 @@
             if (!ok) return;
             ui.pageMessage('');
             var name = book.fileName(data);
-            return book.toBlob(book.build(window.ExcelJS, data)).then(function (blob) {
+            return book.toBlob(book.build(window.ExcelJS, data, { omitPay: omit })).then(function (blob) {
               // 保存のしかたは出勤簿の Excel（page_admin_export.js）と同じ
               var url = URL.createObjectURL(blob);
               var a = el('a', { href: url, download: name, hidden: true });
@@ -195,7 +317,8 @@
               a.click();
               document.body.removeChild(a);
               setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-              $('exported').textContent = 'ファイルを作りました（' + name + '）。部署 ' + data.departments.length + ' 件・社員 ' + data.employees.length + ' 人';
+              $('exported').textContent = 'ファイルを作りました（' + name + '）。部署 ' + data.departments.length + ' 件・社員 ' + data.employees.length + ' 人' +
+                (bulk.hasPay(data) ? (omit ? '（保険の番号・給与の金額は入れていません）' : '（保険の番号・給与の金額が入っています）') : '');
               $('exported').hidden = false;
             }, function () {
               ui.pageMessage('Excel のファイルを作れませんでした。もう一度お試しください', 'error');
@@ -203,7 +326,7 @@
           });
         });
         if (p) p.then(function () { lockFile(false); }, function () { lockFile(false); });
-      });
+      }
 
       // ------------------------------------------------ 確かめる（部署と社員を、同じ1つのファイルから1回で計画する）
       function stateOf(plan) { return plan.fatal ? 'fatal' : plan.errorCount ? 'errors' : 'ok'; }
@@ -218,7 +341,7 @@
         var out = { dept: dept, emp: null, deptKey: bulk.planKey(dept, data), empKey: '', deptState: stateOf(dept), empState: 'none' };
         if (out.deptState === 'ok') {
           var after = bulk.afterDepartments(data, dept);
-          out.emp = bulk.planEmployees(fileRows.employees, after);
+          out.emp = bulk.planEmployees(fileRows.employees, after, { knownIds: knownIds });
           out.empKey = bulk.planKey(out.emp, after);
           out.empState = stateOf(out.emp);
         }
@@ -264,7 +387,8 @@
           if (!c.emp.fatal) renderRows(empList, c.emp);
         }
         // 前に書き出した社員の表に残っている 休憩方式・カレンダーの列は読み飛ばす（部署で決まる）。そのことを 1 行出す
-        var note = c.emp && !c.emp.fatal && c.emp.note ? c.emp.note : '';
+        // 無い列（保険の番号・給与）は今のまま、ということも 1 行出す（計画 4-2）
+        var note = c.emp && !c.emp.fatal ? [c.emp.note, c.emp.missingNote].filter(Boolean).join(' ') : '';
         $('emp-note').textContent = note;
         $('emp-note').hidden = !note;
         btn.hidden = true;
@@ -329,6 +453,10 @@
       function finish(text, sentEmployees) {
         checked = null; // 確かめ直すまで、もう一度は登録できない
         $('progress').textContent = text;
+        // 結果の分からない保存が無ければ、「取り込みを終える」を出す（全部が正常に終わったときは目立たせる。計画 10-9）
+        var clean = !listPending().items.length;
+        $('finish-import2').hidden = !clean;
+        $('finish-import2').className = 'btn block' + (clean && /^終わりました/.test(text) ? ' primary' : '');
         return reloadData().then(function () { if (sentEmployees) followup(); });
       }
 
@@ -355,6 +483,17 @@
             var list = ui.clear($('result-list'));
             ui.clear($('followup'));
             $('to-employees').hidden = true;
+            $('finish-import2').hidden = true;
+            // 次の取り込みを始める: 前の取り込みの記録を消して、新しい記録を書く（計画 10-9）。書けなければ 1 件も送らない
+            try { startImport(now.count); } catch (e) {
+              $('progress').textContent = '途中の記録を残せないため、送っていません';
+              return;
+            }
+            $('import').hidden = true;
+            // 前の取り込みの「名前 → 社員ID」の対応は、この取り込みの計画（確かめたもの・部署の後に立て直すもの）にだけ使い、ここで外す。
+            // この後に足せた人だけを、新しい取り込みの対応として覚える（開き直したときに作り直せる分と同じにする。Codex 実装 1 回目 medium 2）
+            var planIds = knownIds;
+            knownIds = {};
             // 2. 部署を送る（送るのは、目印が合った計画の op だけ。requestId はここで付ける。送り直しは同じ requestId）
             var deptOps = now.dept.ops;
             deptOps.forEach(function (o) { o.requestId = MP.api.newRequestId(); });
@@ -366,7 +505,7 @@
               return (deptOps.length ? reloadData() : Promise.resolve(true)).then(function (ok2) {
                 var redo = '部署は保存しました。社員は、もう一度読み込んで確かめてください';
                 if (!ok2) return finish(redo, false);
-                var emp = bulk.planEmployees(fileRows.employees, data);
+                var emp = bulk.planEmployees(fileRows.employees, data, { knownIds: planIds });
                 if (stateOf(emp) !== 'ok' || bulk.planKey(emp, data) !== empKey || bulk.hasTempId(emp.ops)) return finish(redo, false);
                 // 5. 社員を送る
                 emp.ops.forEach(function (o) { o.requestId = MP.api.newRequestId(); });
@@ -395,7 +534,21 @@
         $('to-employees').hidden = !any;
       }
 
-      showPending();
+      // 開いたとき: 結果の分からない保存があれば、先に「前回の続きを確かめる」。無くて取り込みの記録があれば、サーバーに結果を確かめて
+      // 名前 → 社員ID の対応を作り直す（何度呼んでも同じ答え。計画 10-9）
+      if (!showPending()) {
+        var imp0 = readImport();
+        if (imp0 && !imp0.bad && imp0.items.length) {
+          lockFile(true);
+          var p0 = ui.run(function () {
+            return settle().then(function (s) {
+              if (!s.ok) { ui.pageMessage('前回の取り込みの結果を確かめられませんでした（' + s.message + '）。画面を開き直してください', 'error'); return; }
+              if (!showPending()) showImport('サーバーで確かめた結果: ' + settleText(s));
+            });
+          });
+          if (p0) p0.then(function () { lockFile(false); }, function () { lockFile(false); });
+        } else if (imp0 && !imp0.bad) showImport('');
+      }
     });
   });
 })();

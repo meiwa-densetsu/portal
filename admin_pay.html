@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>給与の目安｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=25">
+<script src="js/boot.js?v=25" defer></script>
+<script src="js/sw_register.js?v=25" defer></script>
+<script src="js/config.js?v=25" defer></script>
+<script src="js/store.js?v=25" defer></script>
+<script src="js/ui.js?v=25" defer></script>
+<script src="js/api.js?v=25" defer></script>
+<script src="js/report.js?v=25" defer></script>
+<script src="js/guard.js?v=25" defer></script>
+<script src="gen/calc_task.js?v=25" defer></script>
+<script src="js/remind.js?v=25" defer></script>
+<script src="gen/calc_worktime.js?v=25" defer></script>
+<script src="gen/calc_pay.js?v=25" defer></script>
+<script src="js/page_admin_pay.js?v=25" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap full">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>給与の目安（管理者だけ）</h1>
+  <p id="not-official" class="msg warn">正式な給与計算ではありません（目安です）。割増率・単価の決まりは社労士への確認前の仮のものです。遅刻早退欠勤の減額と、日給制の人の有給の日の賃金は、まだ数えていません（休暇の申請ができてから計算します）。</p>
+  <div class="period-nav">
+    <button type="button" id="prev" class="btn">前の期間</button>
+    <h2 id="period-label" class="period-label"></h2>
+    <button type="button" id="next" class="btn">次の期間</button>
+  </div>
+  <p id="closed-state" class="sub"></p>
+  <p id="rates" class="sub"></p>
+  <p id="rates-bad" class="msg error" hidden>割増率の設定の順が正しくありません（時間外の率は 45 時間まで ≤ 45〜60 時間 ≤ 60 時間超 にしてください）。参考の残業代は出していません。</p>
+  <p class="sub">「合計の目安」は会社が払う形（固定の 11 項目 ＋ 夜勤手当）です。「参考: 法律で数えた残業代の目安」と「振替に貯めた時間」は合計に入っていません。無い手当は 0 を入れてください（空は未入力です）。</p>
+  <ul id="cards" class="list card cards-only"></ul>
+  <div class="table-wrap">
+    <div class="pay-scroll">
+      <table id="pay-table" class="grid pay-table">
+        <thead id="pay-head"></thead>
+        <tbody id="pay-rows"></tbody>
+      </table>
+    </div>
+  </div>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>

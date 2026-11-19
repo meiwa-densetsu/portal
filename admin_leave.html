@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>休暇の管理｜名和電設ポータル</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=25">
+<script src="js/boot.js?v=25" defer></script>
+<script src="js/sw_register.js?v=25" defer></script>
+<script src="js/config.js?v=25" defer></script>
+<script src="js/store.js?v=25" defer></script>
+<script src="js/ui.js?v=25" defer></script>
+<script src="js/api.js?v=25" defer></script>
+<script src="js/report.js?v=25" defer></script>
+<script src="js/guard.js?v=25" defer></script>
+<script src="gen/calc_task.js?v=25" defer></script>
+<script src="js/remind.js?v=25" defer></script>
+<script src="js/leave_view.js?v=25" defer></script>
+<script src="js/page_admin_leave.js?v=25" defer></script>
+</head>
+<body hidden>
+<header id="topbar" class="topbar" hidden></header>
+<main class="wrap wide">
+<div id="msg" class="msg error" role="alert" hidden></div>
+
+<div id="view" hidden>
+  <h1>休暇の管理</h1>
+  <p class="sub">休暇の残りは目安です。社員を選ぶと、その人の休暇の画面を管理者として開きます（代わりに申請・直す）。</p>
+
+  <section class="card" aria-labelledby="unseen-h">
+    <h2 id="unseen-h">未確認の申請</h2>
+    <ul id="unseen" class="list"></ul>
+    <div class="menu"><button type="button" id="seen-all" class="btn primary" hidden>表示している申請を「確認した」にする</button></div>
+  </section>
+
+  <section class="card" aria-labelledby="cand-h">
+    <h2 id="cand-h">有給の付与の候補</h2>
+    <p class="sub">付与の日の 31 日前から出ます。出勤率が 8 割に届かない人は、初めは「付与しない」を選んであります（理由を書けば付与もできます）。前の付与から順に確定してください。</p>
+    <ul id="cands" class="list"></ul>
+  </section>
+
+  <section class="card" aria-labelledby="people-h">
+    <h2 id="people-h">全員の残り</h2>
+    <p id="stale-note" class="msg warn" hidden></p>
+    <div class="menu"><button type="button" id="rebuild-all" class="btn">全員の控えを作り直す</button></div>
+    <ul id="people" class="list"></ul>
+  </section>
+
+  <section class="card" aria-labelledby="closed-h">
+    <h2 id="closed-h">締めた期間の振り分けの変化</h2>
+    <p class="sub">締めた期間の休みの振り分け（有給・振替・欠勤）が、後の変更で変わった日です。給与の担当に伝えてください。</p>
+    <ul id="closed" class="list"></ul>
+  </section>
+
+  <a class="btn block" href="admin_leave_start.html">休暇の使い始め（起点・初めの残高）</a>
+  <a class="btn block" href="admin_changes.html">修正履歴を見る</a>
+  <a class="btn block" href="home.html">ホームへ戻る</a>
+</div>
+</main>
+</body>
+</html>
