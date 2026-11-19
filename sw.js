@@ -10,7 +10,7 @@
  */
 'use strict';
 
-var VERSION = '25'; // web/js/config.js の APP_VERSION と同じ値（tests/web_static_test.js が確かめる）
+var VERSION = '26'; // web/js/config.js の APP_VERSION と同じ値（tests/web_static_test.js が確かめる）
 var PREFIX = 'portal-v';
 var CACHE = PREFIX + VERSION;
 var PAGE_PATH = /(?:\.html|\/)$/;
@@ -25,26 +25,26 @@ var PRECACHE = [
   './', 'admin_bulk.html', 'admin_calendars.html', 'admin_changes.html', 'admin_closing.html', 'admin_departments.html', 'admin_devices.html',
   'admin_employee_calendar.html', 'admin_employees.html', 'admin_export.html', 'admin_legal.html', 'admin_task_export.html', 'devices.html',
   'home.html', 'index.html', 'invite.html', 'login.html', 'manager.html', 'my_numbers.html', 'password.html', 'register.html', 'report.html', 'report_grid.html',
-  'share.html', 'share_view.html', 'task_recurring.html', 'task_requests.html', 'tasks.html', 'css/style.css?v=25', 'gen/calc_calendar.js?v=25',
-  'gen/calc_report.js?v=25', 'gen/calc_task.js?v=25', 'gen/calc_worktime.js?v=25', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'js/api.js?v=25', 'js/boot.js?v=25', 'js/bulk.js?v=25',
-  'js/bulk_book.js?v=25', 'js/calendar_import.js?v=25', 'js/calendar_view.js?v=25', 'js/config.js?v=25', 'js/export_book.js?v=25',
-  'js/export_layout.js?v=25', 'js/grid.js?v=25', 'js/grid_core.js?v=25', 'js/guard.js?v=25', 'js/page_admin_bulk.js?v=25',
-  'js/page_admin_calendars.js?v=25', 'js/page_admin_changes.js?v=25', 'js/page_admin_closing.js?v=25', 'js/page_admin_departments.js?v=25',
-  'js/page_admin_devices.js?v=25', 'js/page_admin_employee_calendar.js?v=25', 'js/page_admin_employees.js?v=25', 'js/page_admin_export.js?v=25',
-  'js/page_admin_legal.js?v=25', 'js/page_admin_task_export.js?v=25', 'js/page_devices.js?v=25', 'js/page_home.js?v=25', 'js/page_index.js?v=25',
-  'js/page_invite.js?v=25', 'js/page_login.js?v=25', 'js/page_manager.js?v=25', 'js/page_my_numbers.js?v=25', 'js/page_password.js?v=25', 'js/page_register.js?v=25',
-  'js/page_report.js?v=25', 'js/page_report_grid.js?v=25', 'js/page_share.js?v=25', 'js/page_share_view.js?v=25', 'js/page_task_recurring.js?v=25',
-  'js/page_task_requests.js?v=25', 'js/page_tasks.js?v=25', 'js/remind.js?v=25', 'js/report.js?v=25', 'js/report_text.js?v=25', 'js/store.js?v=25',
-  'js/sw_register.js?v=25', 'js/task_dialogs.js?v=25', 'js/task_export_layout.js?v=25', 'js/task_import.js?v=25', 'js/task_item.js?v=25',
-  'js/task_optimistic.js?v=25', 'js/task_view.js?v=25', 'js/ui.js?v=25', 'manifest.json', 'vendor/exceljs-4.4.0.min.js?v=25',
-  'admin_pay.html', 'gen/calc_pay.js?v=25', 'js/page_admin_pay.js?v=25',
+  'share.html', 'share_view.html', 'task_recurring.html', 'task_requests.html', 'tasks.html', 'css/style.css?v=26', 'gen/calc_calendar.js?v=26',
+  'gen/calc_report.js?v=26', 'gen/calc_task.js?v=26', 'gen/calc_worktime.js?v=26', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
+  'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'js/api.js?v=26', 'js/boot.js?v=26', 'js/bulk.js?v=26',
+  'js/bulk_book.js?v=26', 'js/calendar_import.js?v=26', 'js/calendar_view.js?v=26', 'js/config.js?v=26', 'js/export_book.js?v=26',
+  'js/export_layout.js?v=26', 'js/grid.js?v=26', 'js/grid_core.js?v=26', 'js/guard.js?v=26', 'js/page_admin_bulk.js?v=26',
+  'js/page_admin_calendars.js?v=26', 'js/page_admin_changes.js?v=26', 'js/page_admin_closing.js?v=26', 'js/page_admin_departments.js?v=26',
+  'js/page_admin_devices.js?v=26', 'js/page_admin_employee_calendar.js?v=26', 'js/page_admin_employees.js?v=26', 'js/page_admin_export.js?v=26',
+  'js/page_admin_legal.js?v=26', 'js/page_admin_task_export.js?v=26', 'js/page_devices.js?v=26', 'js/page_home.js?v=26', 'js/page_index.js?v=26',
+  'js/page_invite.js?v=26', 'js/page_login.js?v=26', 'js/page_manager.js?v=26', 'js/page_my_numbers.js?v=26', 'js/page_password.js?v=26', 'js/page_register.js?v=26',
+  'js/page_report.js?v=26', 'js/page_report_grid.js?v=26', 'js/page_share.js?v=26', 'js/page_share_view.js?v=26', 'js/page_task_recurring.js?v=26',
+  'js/page_task_requests.js?v=26', 'js/page_tasks.js?v=26', 'js/remind.js?v=26', 'js/report.js?v=26', 'js/report_text.js?v=26', 'js/store.js?v=26',
+  'js/sw_register.js?v=26', 'js/task_dialogs.js?v=26', 'js/task_export_layout.js?v=26', 'js/task_import.js?v=26', 'js/task_item.js?v=26',
+  'js/task_optimistic.js?v=26', 'js/task_view.js?v=26', 'js/ui.js?v=26', 'manifest.json', 'vendor/exceljs-4.4.0.min.js?v=26',
+  'admin_pay.html', 'gen/calc_pay.js?v=26', 'js/page_admin_pay.js?v=26',
   'board.html', 'form.html', 'safety.html', 'admin_board.html', 'admin_links.html', 'admin_forms.html', 'admin_form_edit.html', 'admin_form_result.html', 'admin_safety.html',
-  'gen/calc_form.js?v=25', 'js/portal_text.js?v=25', 'js/safety_pending.js?v=25', 'js/form_excel.js?v=25', 'js/page_board.js?v=25', 'js/page_form.js?v=25', 'js/page_safety.js?v=25',
-  'js/page_admin_board.js?v=25', 'js/page_admin_links.js?v=25', 'js/page_admin_forms.js?v=25', 'js/page_admin_form_edit.js?v=25', 'js/page_admin_form_result.js?v=25',
-  'js/page_admin_safety.js?v=25',
-  'leave.html', 'admin_leave.html', 'admin_leave_start.html', 'js/leave_view.js?v=25', 'js/page_leave.js?v=25', 'js/page_admin_leave.js?v=25',
-  'js/page_admin_leave_start.js?v=25', 'gen/calc_leave.js?v=25',
+  'gen/calc_form.js?v=26', 'js/portal_text.js?v=26', 'js/safety_pending.js?v=26', 'js/form_excel.js?v=26', 'js/page_board.js?v=26', 'js/page_form.js?v=26', 'js/page_safety.js?v=26',
+  'js/page_admin_board.js?v=26', 'js/page_admin_links.js?v=26', 'js/page_admin_forms.js?v=26', 'js/page_admin_form_edit.js?v=26', 'js/page_admin_form_result.js?v=26',
+  'js/page_admin_safety.js?v=26',
+  'leave.html', 'admin_leave.html', 'admin_leave_start.html', 'js/leave_view.js?v=26', 'js/page_leave.js?v=26', 'js/page_admin_leave.js?v=26',
+  'js/page_admin_leave_start.js?v=26', 'gen/calc_leave.js?v=26',
 ];
 
 function noop() {}

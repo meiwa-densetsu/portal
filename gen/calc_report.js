@@ -455,12 +455,13 @@ var CalcReport = (function () {
 
   /**
    * 月次集計に写すその日の値（計画 2-10）。row は日報の行（入力の列・計算の列・recordVersion）。
-   * 返す値: { v, s, w, h, n, k }
+   * 返す値: { v, s, w, h, n, k }。次の日の休みをこの日の勤務から除いたときだけ x を足す（無ければ x は入れない）。
+   * x は除いた区間（この日の 0 時からの分。24:00 以降の部分）を「始め-終わり」でつないだ文字（例 '1500-1560'）
    */
   function summaryOf(row) {
     var st = dayState(row);
     var num = function (v) { return typeof v === 'number' && isFinite(v) ? v : 0; };
-    return {
+    var out = {
       v: num(row && row['recordVersion']),
       s: st,
       w: st === 'work' ? num(row['実働']) : 0,
@@ -468,6 +469,26 @@ var CalcReport = (function () {
       n: st === 'work' ? num(row['深夜']) : 0,
       k: st === 'work' && slotPresent_(row, 'night') ? 1 : 0,
     };
+    var x = st === 'work' ? nextDaySpans(row && row['休みの時刻']) : [];
+    if (x.length) out.x = x.map(function (p) { return p[0] + '-' + p[1]; }).join(',');
+    return out;
+  }
+
+  /**
+   * 日報の列「休みの時刻」（'v3:1500-1560' か '1500-1560'）のうち、次の日の休み（24:00 以降。1440 ずらした区間）の部分の並び
+   * [[始め, 終わり], ...]（この日の 0 時からの分）。休暇の自動の埋めが、夜勤から除いた次の日の休みを、申請ごとに
+   * この日の不足から引くのに使う（同じ休みで 2 回埋めない）
+   */
+  function nextDaySpans(cell) {
+    var s = str_(cell).replace(/^v\d+:/, '');
+    var out = [];
+    s.split(',').forEach(function (part) {
+      var m = /^(\d+)-(\d+)$/.exec(part);
+      if (!m) return;
+      var f = Math.max(Number(m[1]), 1440), t = Number(m[2]);
+      if (t > f) out.push([f, t]);
+    });
+    return out;
   }
 
   return {
@@ -492,6 +513,7 @@ var CalcReport = (function () {
     checkOverlap: checkOverlap,
     balance: balance,
     summaryOf: summaryOf,
+    nextDaySpans: nextDaySpans,
     leaveMark: leaveMark,
   };
 })();

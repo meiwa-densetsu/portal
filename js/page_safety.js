@@ -28,6 +28,9 @@
     var heardAns = {};  // 確認ID → サーバーで知った自分の答え { v（recordVersion）, status, canWork, note, full }（版の大きいほうだけ。書きかけかを決める相手）
     var seenAns = {};   // 確認ID → 最後に画面に出した答え（開いたときの答え・自分で送って届いた答え・合わせた答え）。入力がこれと同じなら「変えていない」
     var apiLeaving = false; // 共通の扱いが画面を移している途中（離れる確認を出さない。タスクの画面と同じ）
+    // 一言は端末の控えに残さない（セキュリティ監査 Low-1・2026-11-19 ユーザー決定）。この画面を開いている間だけメモリで持ち、
+    // 自動の送り直しにも付ける。画面を閉じたら消える（開き直した後に控えから送るときは一言なし）
+    var noteMem = {}; // rid → 押したときの一言（メモリだけ）
 
     function areaFor() {
       try { return MP.store.tokenShared() ? window.sessionStorage : window.localStorage; } catch (e) { return null; }
@@ -73,8 +76,14 @@
       var text = '', kind = '';
       if (cur && !blocked[cur.rid]) {
         if (inflight[cur.rid]) { text = '送っています…（' + cur.answer.status + '）'; kind = 'wait'; }
-        else if (n && n.kind === 'wait') { text = n.text + '（' + cur.answer.status + '）'; kind = 'wait'; }
-        else { text = 'まだ届いていません。電波が戻ったら自動で送ります（' + cur.answer.status + '）'; kind = 'wait'; }
+        else {
+          // 一言は控えに残さないので、自動で送り直すときは付かない（その場の 1 回目で届かなかった一言は届いていない）
+          var lost = !cur.hadNote ? '' : Object.prototype.hasOwnProperty.call(noteMem, cur.rid)
+            ? '。一言は、この画面を開いている間だけ一緒に送ります（閉じると一言は届きません）'
+            : '。一言は届きません（画面を閉じたため。届いた後に、必要なら書き直して送ってください）';
+          text = (n && n.kind === 'wait' ? n.text : 'まだ届いていません。電波が戻ったら自動で送ります') + '（' + cur.answer.status + '）' + lost;
+          kind = 'wait';
+        }
       } else if (n) { text = n.text; kind = n.kind; }
       else if (shown && shown.status) {
         text = '届いている答え: ' + shown.status + '・出社 ' + shown.canWork + (shown.acceptedAt ? '（' + timeText(shown.acceptedAt) + '）' : '') + (shown.proxy ? '・' + shown.enteredByName + 'さんが入れました' : '');
@@ -119,9 +128,12 @@
     function unsent() {
       if (!check || ended) return false;
       var cur = pendingOf(check.checkId);
-      var base = cur && !blocked[cur.rid] ? cur.answer : heardAns[check.checkId];
+      var pend = cur && !blocked[cur.rid];
+      var base = pend ? cur.answer : heardAns[check.checkId];
       base = base || {};
-      return choice.status !== (base.status || '') || choice.canWork !== (base.canWork || '') || noteText() !== (base.note || '');
+      // 控えには一言が無い: この画面で押した控えなら押したときの一言、開き直した後の控えなら空と比べる
+      var note = pend ? (noteMem[cur.rid] || '') : (base.note || '');
+      return choice.status !== (base.status || '') || choice.canWork !== (base.canWork || '') || noteText() !== note;
     }
 
     function stopInput() {
@@ -144,7 +156,9 @@
     }
 
     function argsOf(item) {
-      return { checkId: item.checkId, status: item.answer.status, canWork: item.answer.canWork, note: item.answer.note, baseVersion: item.base, replaces: item.replaces, pressedAt: item.pressedAt };
+      // 一言は、この画面で押した答えだけ（メモリ）。開き直した後に控えから送るときは空
+      var note = Object.prototype.hasOwnProperty.call(noteMem, item.rid) ? noteMem[item.rid] : '';
+      return { checkId: item.checkId, status: item.answer.status, canWork: item.answer.canWork, note: note, baseVersion: item.base, replaces: item.replaces, pressedAt: item.pressedAt };
     }
 
     /** 返事から版だけを覚える（同じログイン・社員・確認の返事なら、最後に押した答えの返事でなくても覚える。21-3） */
@@ -159,7 +173,11 @@
     function judge(item, r) {
       if (r.ok && r.data && r.data.saved) {
         if (check && item.checkId === check.checkId && (!latestRid[item.checkId] || latestRid[item.checkId] === item.rid)) shown = r.data.answer;
-        return { text: '届きました ' + timeText(r.data.answer.acceptedAt), kind: 'ok', drop: true, ok: true };
+        // 一言があった答えなのに、届いた答えの一言が違う（開き直した後に一言なしで送った等）なら、そう知らせる（Codex 納品前 2 回目 low）
+        var want = Object.prototype.hasOwnProperty.call(noteMem, item.rid) ? noteMem[item.rid] : null;
+        var got = r.data.answer.note || '';
+        var lost = want !== null ? (want !== '' && got !== want) : (!!item.hadNote && !got);
+        return { text: '届きました ' + timeText(r.data.answer.acceptedAt) + (lost ? '（一言は届いていません。必要なら書き直して送ってください）' : ''), kind: lost ? 'wait' : 'ok', drop: true, ok: true };
       }
       if (r.ok && r.data && r.data.saved === false) {
         var c = r.data.conflict || {};
@@ -278,6 +296,7 @@
       var base = check.checkId in known ? known[check.checkId] : 0;
       var res = box.press(check, { status: choice.status, canWork: choice.canWork, note: text }, base);
       latestRid[check.checkId] = res.item.rid;
+      noteMem[res.item.rid] = text;
       res.left.forEach(function (rid) { blocked[rid] = true; }); // 消せなかった前の控えは、この画面からは送らない
       if (res.stuck) blocked[res.stuck] = true; // 書けたか分からない新しい鍵も、この画面からは送らない（その場の 1 回だけ）
       var prev = res.leftStatus && res.leftStatus.filter(Boolean).length ? '（' + res.leftStatus.filter(Boolean).join('・') + '）' : '';

@@ -20,7 +20,7 @@ var CalcLeave = (function () {
   'use strict';
 
   /** このファイルの計算の版。中身を変えたら上げる（控えの照合値に入る） */
-  var VERSION = 1;
+  var VERSION = 2; // 2: 夜勤の次の日の休み（cross）を自動の埋めに反映・前借りの上限を確定した付与の日数で（2026-11-19）
 
   /** 単位（シートの値は UNIT_LABEL） */
   var UNITS = ['day', 'half', 'hour'];
@@ -134,6 +134,21 @@ var CalcLeave = (function () {
     return null;
   }
 
+  /**
+   * 振替の先取り（有給の前借り）の上限の日数: 次に来る付与の回の日数。管理者がその回を決めた（付与しない・日数を直す・表のとおり）なら
+   * 確定した付与（grants。取り消した分は入れない）の日数、まだ決めていない回は表（schedule）の日数（2026-11-19 ユーザー決定）。
+   * 次の回が無ければ null。grants は { no, days } を持つ並び
+   */
+  function borrowDays(schedule, grants, date) {
+    var ng = nextGrant(schedule, date);
+    if (!ng) return null;
+    var list = grants || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].no === ng.no && isWhole_(list[i].days) && list[i].days >= 0) return list[i].days;
+    }
+    return ng.days;
+  }
+
   /** 社員履歴の行として使えるか（適用開始日が日付として正しく、1 日の分が正の整数。第18章 18-8 (3)） */
   function validDayMin_(h) {
     return !!h && typeof h.since === 'string' && dayNumber(h.since) !== null && isWhole_(h.min) && h.min > 0;
@@ -230,7 +245,8 @@ var CalcLeave = (function () {
    *   dayMins: [{ since, min }], schedule: [{ no, date, days }],
    *   grants: [{ grantId, date, minutes, kind('auto'|'initial'|'manual'), no, days, expire }]（確定した付与。取り消した分は入れない）,
    *   initialFurikae, adjustments: [{ id, date, minutes }],
-   *   days: { 日付: { sched, earned, shortage, worked } }（起点〜最後の日。無い日は勤務の無い日）,
+   *   days: { 日付: { sched, earned, shortage, worked, cross } }（起点〜最後の日。無い日は勤務の無い日。
+   *          cross … 次の日の休みのうち、この日の勤務〔夜勤〕から除いた区間 [[始め, 終わり], ...]〔次の日の 0 時からの分〕）,
    *   requests: [{ leaveId, date, unit, from, to, kind, targetId }]（取り消した分は入れない）,
    *   autoFrom（2b。'' なら自動の埋めをしない）, careInitial: { 対象者ID: 分 }
    * }
@@ -260,6 +276,28 @@ var CalcLeave = (function () {
     var reqByDate = byDate((input.requests || []).map(function (r) { return Object.assign({ id: r.leaveId }, r); }), 'date');
     var adjByDate = byDate(input.adjustments, 'date');
     var days = input.days || {};
+    // 申請ごとに、前の日の夜勤から除いた区間（前の日の cross）との重なりを見る。重なった分（申請の量まで）は前の日の休みとして数える
+    // crossIn: 日付 → 次の日の申請のうち、この日の夜勤に当てた分 / crossOut: 日付 → この日の申請のうち、前の日の夜勤に当てた分
+    var crossIn = {}, crossOut = {};
+    (input.requests || []).forEach(function (r) {
+      var iv = intervalOf(r);
+      if (!iv) return;
+      var pd = shift(r.date, -1);
+      var prev = days[pd];
+      if (!prev || !Array.isArray(prev.cross) || !prev.cross.length) return;
+      var ov = 0;
+      prev.cross.forEach(function (s) {
+        if (!Array.isArray(s) || !isWhole_(s[0]) || !isWhole_(s[1])) return;
+        var f = Math.max(s[0], iv[0]), t = Math.min(s[1], iv[1]);
+        if (t > f) ov += t - f;
+      });
+      if (ov <= 0) return;
+      var q = requestMinutes(r, dayMinAt(dayMins, r.date), rules, r.kind === 'leave' ? null : L.CARE.STEP_MIN);
+      var att = Math.min(ov, q.ok ? q.minutes : 0);
+      if (att <= 0) return;
+      crossIn[pd] = (crossIn[pd] || 0) + att;
+      crossOut[r.date] = (crossOut[r.date] || 0) + att;
+    });
     var careUsed = {}; // 対象者ID|年度の初め → [有給, 無給]
     // 年度の初めの日 → 枠（1 日の分が取れなければ有給 0・全体 0。第18章 18-3）
     var careLimits = {};
@@ -282,9 +320,9 @@ var CalcLeave = (function () {
     var hourlyUses = []; // [日付, 分]（時間の休みの年の上限の数え。本人が申請した時間の休みだけ）
 
     var borrowLimit = function (d) {
-      var ng = nextGrant(schedule, d);
+      var bd = borrowDays(schedule, grants, d);
       var dm = dayMinAt(dayMins, d);
-      return ng && dm ? ng.days * dm : 0;
+      return bd !== null && dm ? bd * dm : 0;
     };
     var allocate = function (m, d) {
       var res = { paid: [], f: 0, a: 0 };
@@ -375,8 +413,10 @@ var CalcLeave = (function () {
         changed = true;
       });
       // ⑤ 自動の埋め（2b。所定より短く働いた日の足りない時間。1日の休みの日は埋まったとみなす。Q12）
+      // 夜勤の帰属日の時間軸（第17章 17-7 (2)）: 次の日の申請のうち、この日の夜勤に重なった分（crossIn）はこの日の休みとして数え、
+      // その分は次の日の分から外す（crossOut）。同じ休みで 2 回埋めない（Codex 納品前 1・2 回目 high）
       if (input.autoFrom && d >= input.autoFrom && day && day.worked && isWhole_(day.shortage) && day.shortage > 0 && !hasDay) {
-        var need = day.shortage - leaveMin;
+        var need = day.shortage - (leaveMin - (crossOut[d] || 0)) - (crossIn[d] || 0);
         if (need > 0) {
           var ar = allocate(need, d);
           out.auto[d] = { minutes: need, paid: ar.paid, f: ar.f, a: ar.a, cp: 0, cu: 0 };
@@ -448,9 +488,9 @@ var CalcLeave = (function () {
     var soonLimit = shift(today, L.SOON_EXPIRE_DAYS);
     var soon = grantList.filter(function (g) { return g.expire <= soonLimit && g.rem > 0; })
       .map(function (g) { return { grantId: g.grantId, expire: g.expire, minutes: g.rem }; });
-    var ng = nextGrant(summary.schedule, today);
+    var bd = borrowDays(summary.schedule, summary.grants, today);
     var dm = dayMinAt(summary.dayMins, today);
-    var limit = ng && dm ? ng.days * dm : 0;
+    var limit = bd !== null && dm ? bd * dm : 0;
     var f = entry ? entry.f : 0;
     var decided = {};
     (summary.grants || []).forEach(function (g) { if (g.no) decided[g.no] = true; });
@@ -575,6 +615,7 @@ var CalcLeave = (function () {
     checkRules: checkRules,
     grantSchedule: grantSchedule,
     nextGrant: nextGrant,
+    borrowDays: borrowDays,
     dayMinAt: dayMinAt,
     yearStartOf: yearStartOf,
     careLimit: careLimit,
