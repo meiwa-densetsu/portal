@@ -117,8 +117,10 @@
       st.textContent = '控えが古い人が ' + data.staleCount + ' 人います（残りはその場で計算して出しています）。「作り直す」で直ります';
       data.people.forEach(function (p) {
         if (!p.ready) {
-          ul.appendChild(ui.el('li', {}, [ui.el('div', { class: 'item-title' }, [p.name, ' ', ui.el('span', { class: 'tag off', text: '準備中' })]),
-            ui.el('div', { class: 'sub', text: '使い始める日が入っていません（休暇の使い始めの画面で入れます）' })]));
+          // 役員（ずっと役員の人）は休暇の準備をしない（有給の対象外）。使うときは今までどおり休暇の使い始めの画面で入れられる
+          ul.appendChild(ui.el('li', { 'data-emp': p.employeeId }, [ui.el('div', { class: 'item-title' }, [p.name, ' ', ui.el('span', { class: 'tag off', text: p.officer ? '役員（有給の対象外）' : '準備中' })]),
+            ui.el('div', { class: 'sub', text: p.officer ? '役員は休暇の準備をしません（有給の対象外）。使う場合は、休暇の使い始めの画面で使い始める日を入れます'
+              : '使い始める日が入っていません（休暇の使い始めの画面で入れます）' })]));
           return;
         }
         var b = p.balance, dm = b.dayMin || 480;

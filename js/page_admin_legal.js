@@ -75,13 +75,20 @@
       });
     }
 
+    var OFFICER_MIXED = '社員と役員の履歴があります。この人は一覧の対象です';
+
     function renderList() {
       ui.$('period-label').textContent = Number(data.period.from.slice(0, 4)) + '年度（' + data.period.from.slice(5).replace('-', '/') + '〜' + data.period.to.slice(5).replace('-', '/') + '）';
       ui.$('next').disabled = !data.nextDate;
       ui.$('list-view').hidden = false;
       ui.$('detail-view').hidden = true;
       var ul = ui.clear(ui.$('list'));
-      if (!data.employees.length) { ul.appendChild(ui.el('li', { text: 'この年度に在籍した社員がいません' })); return; }
+      // 役員（ずっと役員の人）は 36 協定の対象外（サーバーが一覧から外し、人数だけ返す）
+      var officers = data.officerCount || 0;
+      if (!data.employees.length) {
+        ul.appendChild(ui.el('li', { 'data-officers': '', text: officers ? '対象の社員がいません（役員は対象外です ' + officers + ' 人）' : 'この年度に在籍した社員がいません' }));
+        return;
+      }
       data.employees.forEach(function (e) {
         var nowM = e.nowMonth;
         var lines = [
@@ -91,6 +98,7 @@
           nowM ? ui.el('p', {}, ['今月（' + monthLabel(nowM.month) + '）: ' + prefix(e) + hm(nowM.overtime) + '（上限 ' + hm(nowM.monthLimit) + '） ', levelTag(nowM.level)]) : null,
           ui.el('p', {}, ['年度の合計: ' + prefix(e) + hm(e.yearOvertime) + '（上限 ' + hm(e.yearLimit) + '） ', levelTag(e.yearLevel)]),
           e.provisionalReasons.length ? ui.el('p', { class: 'sub', text: e.provisionalReasons.map(function (k) { return REASONS[k] || k; }).join('・') }) : null,
+          e.officerMixed ? ui.el('p', { class: 'sub', text: OFFICER_MIXED }) : null,
           ui.el('div', { class: 'item-actions' }, [
             ui.el('button', { type: 'button', class: 'btn', text: '詳しく見る', on: { click: function () { openDetail(e); } } }),
             e.staleMonths.length ? ui.el('button', { type: 'button', class: 'btn primary', text: '集計を作り直す（' + e.staleMonths.length + 'か月）', on: { click: function () { rebuild(e); } } }) : null,
@@ -98,6 +106,7 @@
         ];
         ul.appendChild(ui.el('li', {}, lines));
       });
+      if (officers) ul.appendChild(ui.el('li', { class: 'sub', 'data-officers': '', text: '役員は対象外です（' + officers + ' 人）' }));
     }
 
     function openDetail(e) {
@@ -114,6 +123,7 @@
       ui.$('detail-view').hidden = false;
       ui.$('detail-title').textContent = e.name + 'さん';
       var box = ui.clear(ui.$('detail'));
+      if (e.officerMixed) box.appendChild(ui.el('p', { class: 'sub', text: OFFICER_MIXED }));
       if (e.provisionalReasons.length) box.appendChild(ui.el('p', { class: 'msg warn', text: '未確定: ' + e.provisionalReasons.map(function (k) { return REASONS[k] || k; }).join('・') }));
       var ml = modeLine(e);
       if (ml) box.appendChild(ml);

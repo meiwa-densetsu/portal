@@ -10,19 +10,19 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=27">
-<script src="js/boot.js?v=27" defer></script>
-<script src="js/sw_register.js?v=27" defer></script>
-<script src="js/config.js?v=27" defer></script>
-<script src="js/store.js?v=27" defer></script>
-<script src="js/ui.js?v=27" defer></script>
-<script src="js/api.js?v=27" defer></script>
-<script src="js/report.js?v=27" defer></script>
-<script src="js/guard.js?v=27" defer></script>
-<script src="gen/calc_task.js?v=27" defer></script>
-<script src="js/remind.js?v=27" defer></script>
-<script src="js/leave_view.js?v=27" defer></script>
-<script src="js/page_admin_leave.js?v=27" defer></script>
+<link rel="stylesheet" href="css/style.css?v=28">
+<script src="js/boot.js?v=28" defer></script>
+<script src="js/sw_register.js?v=28" defer></script>
+<script src="js/config.js?v=28" defer></script>
+<script src="js/store.js?v=28" defer></script>
+<script src="js/ui.js?v=28" defer></script>
+<script src="js/api.js?v=28" defer></script>
+<script src="js/report.js?v=28" defer></script>
+<script src="js/guard.js?v=28" defer></script>
+<script src="gen/calc_task.js?v=28" defer></script>
+<script src="js/remind.js?v=28" defer></script>
+<script src="js/leave_view.js?v=28" defer></script>
+<script src="js/page_admin_leave.js?v=28" defer></script>
 </head>
 <body hidden>
 <header id="topbar" class="topbar" hidden></header>
@@ -32,6 +32,7 @@
 <div id="view" hidden>
   <h1>休暇の管理</h1>
   <p class="sub">休暇の残りは目安です。社員を選ぶと、その人の休暇の画面を管理者として開きます（代わりに申請・直す）。</p>
+  <p class="sub" id="officer-rule">役員（社員の履歴のすべての行で、雇用区分が「役員」の人）は休暇の準備をしません（有給の対象外）。社員だった期間がある人は、ほかの社員と同じに準備します。</p>
 
   <section class="card" aria-labelledby="unseen-h">
     <h2 id="unseen-h">未確認の申請</h2>
