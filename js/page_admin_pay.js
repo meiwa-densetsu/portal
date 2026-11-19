@@ -19,7 +19,7 @@
       familyAllowance: '家族手当', commute: '交通費', fixedOvertimeMinutes: '含み残業時間', nightShiftPay: '夜勤1日あたりの金額',
       dailyMin: '1日の所定労働時間', employmentType: '雇用区分',
     };
-    var CODES = { NO_CALENDAR: 'カレンダーが確定していません', NO_TYPE: '雇用区分が分かりません', RATE_ORDER: '割増率の設定の順が正しくありません' };
+    var CODES = { NO_CALENDAR: 'カレンダーが確定していません', NO_TYPE: '雇用区分が分かりません', OFFICER: '役員',RATE_ORDER: '割増率の設定の順が正しくありません' };
     var REASONS = {
       MISSING: '未入力の日があります', NOT_YET: '年度の途中です', BOUNDARY_WEEK: '割り当ての境目の週があります',
       SCHEDULE_UNKNOWN: 'カレンダーが未設定・下書きの期間があります（その間の時間外は数えていません）', SUMMARY_STALE: '集計がずれています（法律上の時間外の目安の画面で作り直してください）',
@@ -73,9 +73,12 @@
       return out;
     }
 
-    /** 参考の列（月収制は ①・② を分ける。日給制は時間外の欄 1 つ） */
+    var OFFICER = '—（役員）';
+
+    /** 参考の列（月収制は ①・② を分ける。日給制は時間外の欄 1 つ。役員は残業代が出ないので出さない） */
     function refCols(e) {
       var r = e.estimate.ref;
+      if (e.officer) return { byTime: OFFICER, byAmount: OFFICER, sumByTime: OFFICER, sumByAmount: OFFICER };
       if (e.type === 'daily') {
         return { byTime: cellText(r.overtime), byAmount: '—（日給制）', sumByTime: cellText(r.sum), sumByAmount: '—（日給制）' };
       }
@@ -125,7 +128,8 @@
           ui.el('p', { class: 'sub', text: (e.department || '部署なし') + '・' + typeText(e) }),
           ui.el('p', { class: 'pay-total' }, ['合計の目安: ', ui.el('strong', { text: totalText(m.total) })]),
           m.total.status === 'incomplete' ? ui.el('p', { class: 'sub', text: '入っている項目だけの合計 ' + comma(m.total.partial) + '円（合計の目安ではありません）' }) : null,
-          ui.el('p', { class: 'pay-ref-line' }, [e.type === 'daily'
+          ui.el('p', { class: 'pay-ref-line' }, [e.officer ? '参考: 役員のため、残業代の目安は出しません'
+            : e.type === 'daily'
             ? '参考（合計には入っていません）: ' + rc.sumByTime
             : '参考（合計には入っていません）: ① の形 ' + rc.sumByTime + '／② の形 ' + rc.sumByAmount]),
           notes.length ? ui.el('p', { class: 'sub pay-notes', text: '注意: ' + notes.join('・') }) : null,
@@ -153,6 +157,10 @@
       kv(dl, '夜勤手当（' + m.nightCount + '回）', cellText(m.nightAllowance));
       kv(dl, '合計の目安', totalText(m.total));
       box.appendChild(dl);
+      if (e.officer) {
+        box.appendChild(ui.el('p', { class: 'sub', text: '役員のため、残業代の目安は出しません' }));
+        return box;
+      }
       box.appendChild(ui.el('h3', { text: '参考: 法律で数えた残業代の目安（合計には入っていません）' }));
       var dr = ui.el('dl', { class: 'kv pay-ref' });
       kv(dr, '時間外（法律）', hm(m.minutes.overtime));
@@ -196,10 +204,11 @@
         tds.push(ui.el('td', { class: 'num', 'data-key': 'nightAllowance', text: cellText(m.nightAllowance) }));
         tds.push(ui.el('td', { class: 'num pay-sum', 'data-key': 'total' }, [totalText(m.total),
           m.total.status === 'incomplete' ? ui.el('div', { class: 'sub', text: '入っている項目だけ ' + comma(m.total.partial) + '円' }) : null]));
-        [[hm(m.minutes.overtime), 'overtime'],
+        (e.officer ? ['overtime', 'fixedOvertime', 'byTime', 'byAmount', 'holiday', 'deepNight', 'refSum'].map(function (k) { return [OFFICER, k]; })
+          : [[hm(m.minutes.overtime), 'overtime'],
           [e.type === 'daily' ? '—（日給制）' : (m.minutes.fixedOvertime === null ? '未入力' : hm(m.minutes.fixedOvertime)), 'fixedOvertime'],
           [rc.byTime, 'byTime'], [rc.byAmount, 'byAmount'], [cellText(r.holiday), 'holiday'], [cellText(r.deepNight), 'deepNight'],
-          [e.type === 'daily' ? rc.sumByTime : rc.sumByTime + '／' + rc.sumByAmount, 'refSum']]
+          [e.type === 'daily' ? rc.sumByTime : rc.sumByTime + '／' + rc.sumByAmount, 'refSum']])
           .forEach(function (x) { tds.push(ui.el('td', { class: 'num pay-ref', 'data-key': x[1], text: x[0] })); });
         tds.push(ui.el('td', { class: 'num', 'data-key': 'furikae', text: hm(e.furikae) }));
         var notes = notesOf(e);
