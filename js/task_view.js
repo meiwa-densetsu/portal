@@ -203,7 +203,25 @@
     return !!it && !!it.can && it.can.complete === true && it.state !== '取りやめ' && !it.pending && !viewing;
   }
 
-  var api = { ALL: ALL, PLAN_MARK: PLAN_MARK, PENDING_MARK: PENDING_MARK, planText: planText, planCount: planCount, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
+  /**
+   * 前の日の控え（端末に覚えた task.month の答え）から、出してよい項目だけで作り直す（許す一覧。計画 stage2-task-open-speed2-plan.md 1-1 の A）。
+   * 自分（myId）が担当のタスクと先送りの印だけを残し、通知・申し送り・メモ・定型の予定は空にする。一覧に無い項目はコピーしない。
+   * 「今日」は空（前の日を今日と見せない）。nowDate・nowMin は端末の見当（締め切りの印のため。最新が来たらサーバーの値になる）
+   */
+  var PAST_VIEW_KEYS = ['month', 'from', 'to', 'people', 'departments', 'myDeptId', 'rules', 'items', 'marks',
+    'plans', 'planMore', 'memos', 'handovers', 'notices', 'noticeMore', 'taskToday', 'today', 'nowDate', 'nowMin'];
+  function pastView(v, myId, nowMs) {
+    var j = new Date(nowMs + 9 * 3600000); // 日本時間の今
+    var mine = function (x) { return !!x && x.owner === myId; };
+    return {
+      month: v.month, from: v.from, to: v.to, people: v.people, departments: v.departments, myDeptId: v.myDeptId, rules: v.rules,
+      items: v.items.filter(mine), marks: v.marks.filter(mine),
+      plans: [], planMore: false, memos: [], handovers: [], notices: [], noticeMore: false,
+      taskToday: '', today: '', nowDate: j.toISOString().slice(0, 10), nowMin: j.getUTCHours() * 60 + j.getUTCMinutes(),
+    };
+  }
+
+  var api = { ALL: ALL, PLAN_MARK: PLAN_MARK, PAST_VIEW_KEYS: PAST_VIEW_KEYS, pastView: pastView, PENDING_MARK: PENDING_MARK, planText: planText, planCount: planCount, md: md, entries: entries, counts: counts, due: due, tags: tags, cellText: cellText, fullText: fullText, cls: cls,
     people: people, handovers: handovers, summary: summary, moveArgs: moveArgs, remindMark: remindMark, remindText: remindText, earlyText: earlyText, remindClock: remindClock, canCheck: canCheck, entriesIndex: entriesIndex };
   if (root) { root.MP = root.MP || {}; root.MP.taskView = api; }
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

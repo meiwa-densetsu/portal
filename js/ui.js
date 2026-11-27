@@ -29,6 +29,11 @@
     return e;
   }
 
+  /** 会社のロゴ（光が流れる）と一言。読み込み中・送信中に出す（見た目は style.css の .ll。ロゴは飾りなので読み上げない） */
+  function loadingLogo(text) {
+    return el('span', { class: 'll' }, [el('span', { class: 'll-img', 'aria-hidden': 'true' }), el('span', { class: 'll-text', text: text })]);
+  }
+
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
 
   /** 画面の上のお知らせ（#msg）。text が空なら消す。kind: error / info / warn / ok */
@@ -102,7 +107,7 @@
     running = true;
     var buttons = Array.prototype.slice.call(document.querySelectorAll('button')).filter(function (b) { return !b.disabled; });
     buttons.forEach(function (b) { b.disabled = true; });
-    var bar = el('div', { class: 'busy', role: 'status', text: '送信中…' });
+    var bar = el('div', { class: 'busy', role: 'status' }, [loadingLogo('送信中…')]);
     document.body.appendChild(bar);
     var done = function () {
       running = false;
@@ -314,7 +319,7 @@
   MP.ui = {
     showBroken: showBroken, watchBroken: watchBroken, isBroken: isBroken, stopped: stopped, brokenMessage: brokenMessage, drawing: drawing,
     $: $, el: el, clear: clear, pageMessage: pageMessage, showFlash: showFlash, fieldError: fieldError, clearFieldErrors: clearFieldErrors,
-    run: run, dialog: dialog, confirm: confirm, notice: notice, fmtDateTime: fmtDateTime, fmtTime: fmtTime, fmtDate: fmtDate,
+    run: run, loadingLogo: loadingLogo, dialog: dialog, confirm: confirm, notice: notice, fmtDateTime: fmtDateTime, fmtTime: fmtTime, fmtDate: fmtDate,
     guessDeviceName: guessDeviceName, deviceSummary: deviceSummary, iosNotStandalone: iosNotStandalone,
   };
 })();

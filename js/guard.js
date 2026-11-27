@@ -138,7 +138,7 @@
         renderTopbar(early, o);
         var msg = MP.ui.$('msg');
         if (o.load && !o.noLoadingNote && msg && msg.parentNode) {
-          note = MP.ui.el('p', { class: 'loading-note', id: 'loading-note', role: 'status', text: '読み込み中…' });
+          note = MP.ui.el('p', { class: 'loading-note', id: 'loading-note', role: 'status' }, [MP.ui.loadingLogo('読み込み中…')]);
           msg.parentNode.insertBefore(note, msg.nextSibling);
         }
       }

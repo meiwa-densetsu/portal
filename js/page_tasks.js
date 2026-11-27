@@ -54,7 +54,6 @@
     var sideUnknown = false; // その通信が、結果の分からないまま終わった（画面を離れるときに打ち切られた・電波なし）。次に最新を読むまで控えを書かない
     var STALE_TEXT = '前に開いたときの内容です。最新を確かめています…';
     var STALE_FAILED_TEXT = '前に開いたときの内容です（最新を読めませんでした。画面を読み込み直してください）';
-
     function viewing() { return MP.guard.viewing(); }
     /** 結果が分からない失敗か（通信が切れた・混み合い・途中で止まった。画面を離れるときにブラウザが打ち切った通信も NETWORK になる） */
     function unknownResult(res) { return res.code === 'NETWORK' || res.code === 'BUSY' || res.code === 'INTERNAL'; }
@@ -117,6 +116,7 @@
         if (openedAs && r.res.sentMark && r.res.sentMark !== openedAs) { window.location.reload(); return false; }
         freshMark = r.res.sentMark || '';
         base = r.res.data;
+        if (stalePast) { day = null; stalePast = false; } // 前の日の控えの後: 選んでいる日を最新の「タスクの今日」に選び直す（計画 1-2）
         stale = false;
         gotFresh = true;
         sideUnknown = false; // 最新を読めた
@@ -163,6 +163,7 @@
           if (p.fallback) inner += '（先読みなし ' + p.fallback + ' 回）';
         }
         inner = '（' + inner + '）';
+        if (p && typeof p.sheets === 'number') inner += '・シート ' + p.sheets + ' 枚'; // まとめ読みで頼んだ枚数（計画 stage2-task-open-speed2-plan.md 第3章。古いサーバーには無い）
       }
       if (timing.fresh !== null) parts.push('最新 ' + sec(timing.fresh) + inner);
       var text = parts.join('・');
@@ -241,6 +242,13 @@
       var n = ui.$('stale-note');
       n.textContent = STALE_FAILED_TEXT;
       n.hidden = false;
+      if (stalePast) { // 前の日の控えは、最新で確かめられないまま出し続けない。端末からも消す（読み込み直すたびに出ないように。計画 1-2）
+        ui.$('view').hidden = true;
+        // 一言は出さない（エラーと「画面を読み込み直してください」は、上のお知らせに 1 つだけ出る。二重に出さない。Codex 実装 1 回目 medium）
+        n.textContent = '';
+        n.hidden = true;
+        MP.store.clearTaskView(MP.store.tokenMark());
+      }
     }
 
     /**
@@ -257,11 +265,27 @@
       if (ok) MP.store.setTaskView(me.employeeId, base, freshMark); else MP.store.clearTaskView(freshMark);
     }
 
-    /** 控えとして出せる形か（今月・端末の時計の見当と同じ「タスクの今日」・一覧が配列） */
+    /** 控えとして出せる形か（今月・一覧が配列。日の条件は staleAge で見る） */
     function usableView(v) {
-      return !!v && v.month === ym && v.taskToday === guessToday() && typeof v.from === 'string' && typeof v.to === 'string'
-        && Array.isArray(v.items) && Array.isArray(v.people) && Array.isArray(v.departments) && !!v.rules && typeof v.rules === 'object';
+      return !!v && v.month === ym && typeof v.taskToday === 'string' && typeof v.from === 'string' && typeof v.to === 'string'
+        && Array.isArray(v.items) && Array.isArray(v.marks) && Array.isArray(v.people) && Array.isArray(v.departments) && !!v.rules && typeof v.rules === 'object';
     }
+
+    /** 前の日の控えを使う古さの上限（日。計画 stage2-task-open-speed2-plan.md 1-3） */
+    var PAST_VIEW_MAX_DAYS = 7;
+    /**
+     * 控えの「タスクの今日」が、端末の見当の今日と比べてどうか: 'today'（同じ日）／'past'（前の日で 7 日前まで）／
+     * 'old'（8 日前より古い。使わずに消す）／null（今日より後・形が違う。使わない）
+     */
+    function staleAge(v) {
+      var t = guessToday();
+      if (!CT.isDate(v.taskToday)) return null;
+      if (v.taskToday === t) return 'today';
+      if (v.taskToday > t) return null;
+      return v.taskToday >= CT.addDays(t, -PAST_VIEW_MAX_DAYS) ? 'past' : 'old';
+    }
+
+    var stalePast = false; // 前の日の控えを出している間（最新が来たら、日を「タスクの今日」に選び直す）
 
     /** 初めに: 控えがあれば、最新を待たずに出す（loading を立てたまま ＝ 見るだけ） */
     function showStale() {
@@ -269,21 +293,27 @@
       var cm = MP.store.me();
       var v = cm ? MP.store.taskView() : null;
       if (!usableView(v)) return;
+      var age = staleAge(v);
+      if (age === 'old') { MP.store.clearTaskView(MP.store.tokenMark()); return; } // 古すぎる控えは消す
+      if (!age) return;
       stale = true;
+      stalePast = age === 'past';
       me = cm;
-      base = v;
+      base = stalePast ? TV.pastView(v, cm.employeeId, Date.now()) : v; // 前の日の控えは、出してよい項目だけで作り直す（task_view.js）
+      if (stalePast && v.taskToday.slice(0, 7) === ym) day = v.taskToday; // 初めは控えの日（前の日の「今日」）を選ぶ
       rebuildView();
       loading = true; // 描く前に立てる（描く中の sendSeen・行のボタンが loading を見る）
       try {
         adopt();
       } catch (e) { // 控えの中身が今の画面と合わない（古い版の控えなど）: 捨てて、今までどおり最新を待つ
-        stale = false; me = null; base = null; data = null; day = null; shownDay = null; deptId = null;
+        stale = false; stalePast = false; me = null; base = null; data = null; day = null; shownDay = null; deptId = null;
         ui.$('view').hidden = true;
         MP.store.clearTaskView(MP.store.tokenMark()); // 今のログインで読んだ控えなので、今の目印で消す
         return;
       }
       var n = ui.$('stale-note');
-      n.textContent = STALE_TEXT;
+      var text = stalePast ? '前に開いたとき（' + Number(v.taskToday.slice(5, 7)) + '月' + Number(v.taskToday.slice(8, 10)) + '日）の自分のタスクです。最新を確かめています…' : STALE_TEXT;
+      ui.clear(n).appendChild(ui.loadingLogo(text)); // 最新を待つ間はロゴを光らせる（読めなかったときは staleFailed が文字だけにする）
       n.hidden = false;
       if (TIMING) { timing.stale = now(); renderTiming(); }
     }

@@ -39,7 +39,9 @@
   // 区切りごとの時間の鍵（計画 stage2-task-open-speed-plan.md 2-3）。これ以外は捨てる
   var PHASE_KEYS = ['names', 'read', 'parse', 'auth', 'fallback', 'check', 'maintain', 'view', 'me', 'other', 'rows',
     // サーバーの中の細かい内訳（計画 stage2-task-open-measure-plan.md 第1・2章。どれも上の区間の内数。ミリ秒、または回数）
-    'touch', 'lockWait', 'lockBody', 'flush', 'epoch', 'open', 'single', 'singleN', 'exists', 'dropLock', 'dropEpoch'];
+    'touch', 'lockWait', 'lockBody', 'flush', 'epoch', 'open', 'single', 'singleN', 'exists', 'dropLock', 'dropEpoch',
+    // まとめ読みで頼んだシートの枚数（計画 stage2-task-open-speed2-plan.md 第3章。回数）
+    'sheets'];
   // 名前 → 数の入れ物（rowsBy … 表ごとの行の数・singleBy … 表ごとの 1 枚ずつ読んだ回数。どちらも管理者の答えにだけある）
   var BY_KEYS = ['rowsBy', 'singleBy'];
   var ROWS_NAME = /^[぀-ヿ一-鿿（）]{1,20}$/; // 表の種類の名前（かな・漢字・全角のかっこだけ。サーバーが決まった名前に替えたもの）
