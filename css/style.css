@@ -156,11 +156,6 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--c-
 .net-detail-text { margin: var(--sp-3) 0 0; padding: var(--sp-3); border: 1px solid var(--c-line); border-radius: var(--radius); background: var(--c-bg);
   font: inherit; font-size: var(--fs-small); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
 
-.busy {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-  background: var(--c-text); color: var(--c-surface); text-align: center; padding: var(--sp-2);
-}
-
 /*
  * 読み込み中・送信中の会社のロゴ（社名ごと。上を光が流れる。2026-11-27 ユーザーが 20 案から 18 番を選んだ）。
  * ロゴは ::before、光は ::after。光の色は後ろの色と同じにする（ロゴの無いところでは見えず、ロゴの上でだけ光って見える）
@@ -174,12 +169,33 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--c-
   animation: ll-shine 1.6s ease-in-out infinite;
 }
 @keyframes ll-shine { 0% { left: -50%; } 70%, 100% { left: 120%; } }
-/* 画面を開いて待つ間（上の帯の下・真ん中に大きく） */
-.loading-note .ll { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-6) auto; }
-.loading-note .ll-img { height: 48px; width: 188px; }
-/* 送信中の帯（暗い色の上なので、ロゴを白くする。光は帯の色） */
-.busy .ll-img { --ll-shine: var(--c-text); }
-.busy .ll-img::before { filter: brightness(0) invert(1); }
+/*
+ * 前に出す幕（2026-11-28 ユーザーが見本 4 案から A「暗い幕＋白いカード」を選んだ）。
+ * 画面を開いて待つ間（#loading-note）・送信中（.busy）・タスクリストで最新を待つ間（#stale-note にロゴがあるとき）は、
+ * 後ろの画面を少し暗くして、真ん中の白いカードにロゴと一言を出す。
+ * 幕は押せるものを横取りしない（pointer-events: none。押せないようにするのは今までどおり各画面の処理）。
+ * すぐ終わるときにちらつかないよう、0.3 秒たってから出す（それまでは透明）。
+ * :has() を知らない古いブラウザは、:has() を含むルールを丸ごと捨てるので、#stale-note だけ別のルールにする
+ * （そのときタスクリストは、今までどおり控えの上の一言にロゴが出る。ほかの 2 つは幕になる。Codex 1 回目 medium）
+ */
+.loading-note, .busy {
+  position: fixed; inset: 0; z-index: 10; margin: 0; padding: var(--sp-4); border: 0; border-radius: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-overlay); pointer-events: none; animation: ll-veil .2s ease-out .3s both;
+}
+.stale-note:has(> .ll) {
+  position: fixed; inset: 0; z-index: 10; margin: 0; padding: var(--sp-4); border: 0; border-radius: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-overlay); pointer-events: none; animation: ll-veil .2s ease-out .3s both;
+}
+@keyframes ll-veil { from { opacity: 0; } to { opacity: 1; } }
+.loading-note .ll, .busy .ll, .stale-note .ll {
+  display: flex; flex-direction: column; gap: var(--sp-2); max-width: min(100%, 22em);
+  padding: var(--sp-5) var(--sp-6) var(--sp-4); border-radius: 16px; background: var(--c-surface); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  color: var(--c-text); font-size: var(--fs-base); text-align: center; overflow-wrap: anywhere;
+}
+.loading-note .ll-img, .busy .ll-img, .stale-note .ll-img { height: 48px; width: 188px; max-width: 100%; --ll-shine: var(--c-surface); }
+.loading-note .ll-img::before, .busy .ll-img::before, .stale-note .ll-img::before { background-position: center; }
 @media (prefers-reduced-motion: reduce) { .ll-img::after { animation: none; display: none; } }
 
 /* ---- 確認・お知らせのダイアログ ---- */
